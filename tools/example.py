@@ -33,7 +33,7 @@ def main():
         "2 + 2 -> 5\n"
         "3 + 3 -> 7\n"
         "4 + 4 -> ",
-        "请问你是什么模型？",
+        "Chaos isn't a pit, Chaos is a ladder.",
         ]
 
     temperature = 1.0 # for greedy decoding
