@@ -47,6 +47,10 @@ class MoETorchFFN(nn.Module):
         expert_weights, expert_indices = torch.topk(
             scores, self.num_experts_per_tok, dim=-1)
         expert_weights = expert_weights.softmax(dim=-1)
+
+        print("Selected experts", expert_indices)
+        print("scores of all experts", scores)
+
         flat_expert_indices = expert_indices.view(-1)
 
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
@@ -61,6 +65,7 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
     def __init__(self, layer_id: int, args: ModelArgs):
         super().__init__(layer_id, args)
         
+        print("layer: ", layer_id)
         self.attention = TorchAttention(args)
         assert args.moe["num_experts"] % args.num_gpus == 0, "num_experts must be divisible by num_gpus"
         self.feed_forward = MoETorchFFN(

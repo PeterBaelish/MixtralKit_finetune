@@ -28,11 +28,6 @@ def main():
     max_seq_len = 1024
     max_gen_len = 64
     prompts = [
-        "Who are you?",
-        "1 + 1 -> 3\n"
-        "2 + 2 -> 5\n"
-        "3 + 3 -> 7\n"
-        "4 + 4 -> ",
         "Chaos isn't a pit, Chaos is a ladder.",
         ]
 
