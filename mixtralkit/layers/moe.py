@@ -54,7 +54,7 @@ class MoETorchFFN(nn.Module):
             "scores": scores.tolist()
         }
 
-        with open("output_data.json", "a") as file:
+        with open("/workspace/MixtralKit/output_data.json", "a") as file:
             json.dump(output_data, file)
             file.write("\n")
 
