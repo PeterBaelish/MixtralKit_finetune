@@ -169,11 +169,12 @@ class Mixtral:
         for cur_pos in range(min_prompt_len, total_len):
             print("current_position:", cur_pos)
             print("current token id:", tokens[0, prev_pos])
-            print("current token:", self.tokenizer.decode(tokens[0, prev_pos]).tolist())
+            # print("current token:", self.tokenizer.decode(tokens[0, prev_pos]))
             
             output_data = {
-                "current token": self.tokenizer.decode(tokens[0, prev_pos]).tolist(),
-                "current_position": cur_pos.tolist()
+                #"current token": self.tokenizer.decode(tokens[0, prev_pos]),
+                "current token id": tokens[0, prev_pos],
+                "current_position": cur_pos
             }
 
             with open("/workspace/MixtralKit/output_data.json", "a") as file:
