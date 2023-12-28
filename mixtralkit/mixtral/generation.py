@@ -173,7 +173,7 @@ class Mixtral:
             
             output_data = {
                 #"current token": self.tokenizer.decode(tokens[0, prev_pos]),
-                "current token id": tokens[0, prev_pos],
+                "current token id": tokens[0, prev_pos].tolist(),
                 "current_position": cur_pos
             }
 
