@@ -169,7 +169,7 @@ class Mixtral:
         for cur_pos in range(min_prompt_len, total_len):
             print("current_position:", cur_pos)
             print("current token id:", tokens[0, prev_pos])
-            print("current token:", self.tokenizer.decode(tokens[0, prev_pos]))
+            print("current token:", self.tokenizer.decode(tokens[0, prev_pos]).tolist())
             
             output_data = {
                 "current token": self.tokenizer.decode(tokens[0, prev_pos]).tolist(),
