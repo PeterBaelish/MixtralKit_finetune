@@ -168,19 +168,19 @@ class Mixtral:
 
         for cur_pos in range(min_prompt_len, total_len):
             print("current_position:", cur_pos)
-            print("current token id:", tokens[0, prev_pos])
+            print("current token id:", tokens[0, prev_pos].tolist())
             print("current token:", self.tokenizer.decode(tokens[0, prev_pos].tolist()))
-            
+            '''
             output_data = {
                 "current token": self.tokenizer.decode(tokens[0, prev_pos].tolist()),
                 "current token id": tokens[0, prev_pos].tolist(),
                 "current_position": cur_pos
             }
-
+            
             with open("/workspace/MixtralKit/output_data.json", "a") as file:
                 json.dump(output_data, file)
                 file.write("\n")
-            
+            '''
             
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
             if temperature > 0:

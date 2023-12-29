@@ -50,8 +50,8 @@ class MoETorchFFN(nn.Module):
         expert_weights = expert_weights.softmax(dim=-1)
 
         output_data = {
-            "expert_indices": expert_indices.tolist(),
-            "scores": scores.tolist()
+            "expert_indices": expert_indices.tolist()
+            # "scores": scores.tolist()
         }
 
         with open("/workspace/MixtralKit/output_data.json", "a") as file:
@@ -59,7 +59,7 @@ class MoETorchFFN(nn.Module):
             file.write("\n")
 
         print("Selected experts", expert_indices)
-        print("scores of all experts", scores)
+        # print("scores of all experts", scores)
 
         flat_expert_indices = expert_indices.view(-1)
 
