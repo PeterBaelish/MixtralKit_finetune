@@ -40,13 +40,13 @@ def main():
         num_gpus=args.num_gpus,
     )
 
-    mmlu_path = "../mmlu"
+    mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
 
-    for file in mmlu_files:
+    for csvfile in mmlu_files:
 
-        task = file.rstrip('.csv')
-        file_path = mmlu_path + '/' + file
+        task = csvfile.rstrip('.csv')
+        file_path = mmlu_path + '/' + csvfile
         df = pd.read_csv(file_path, header=None, usecols=[0])
 
         if os.path.exists("/workspace/MixtralKit/output_data.json"):
@@ -55,12 +55,13 @@ def main():
         # 初始化一个字典，用于存储每一层的统计结果
         layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
 
-        for prompts in df:
+        for prompts in df[0]:
             '''
             prompts = [
                 "Chaos isn't a pit, Chaos is a ladder.",
                 ]
             '''
+            prompts = [str(prompts)]
             temperature = 1.0 # for greedy decoding
             top_p = 0.9
 
