@@ -29,8 +29,8 @@ def parse_args():
 def main():
     args = parse_args()
     max_batch_size = 4
-    max_seq_len = 1024
-    max_gen_len = 1024
+    max_seq_len = 128
+    max_gen_len = 128
 
     generator = Mixtral.build(
         ckpt_dir=args.model_weights,
@@ -54,6 +54,7 @@ def main():
 
         # 初始化一个字典，用于存储每一层的统计结果
         layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        prompt_num = 100
 
         for prompts in df[0]:
             '''
@@ -91,6 +92,10 @@ def main():
                 print(f"Layer {layer}: {dict(layer_stats[layer])}")
 
             os.remove("/workspace/MixtralKit/output_data.json")
+
+            prompt_num = prompt_num - 1
+            if prompt_num < 0:
+                break
 
         layer_stats_json = {layer: dict(layer_stats[layer]) for layer in layer_stats}
 

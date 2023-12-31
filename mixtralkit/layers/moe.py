@@ -58,7 +58,7 @@ class MoETorchFFN(nn.Module):
             json.dump(output_data, file)
             file.write("\n")
 
-        print("Selected experts", expert_indices)
+        # print("Selected experts", expert_indices)
         # print("scores of all experts", scores)
 
         flat_expert_indices = expert_indices.view(-1)

@@ -191,7 +191,7 @@ class TorchTransformer(nn.Module):
 
         layer_id = 0
         for layer in self.layers:
-            print("layer: ", layer_id)
+            # print("layer: ", layer_id)
             h = layer(h, start_pos, freqs_cis, mask)
             layer_id = layer_id + 1
         h = self.norm(h)
