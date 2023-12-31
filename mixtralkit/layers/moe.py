@@ -70,6 +70,54 @@ class MoETorchFFN(nn.Module):
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
 
+class SingleGPUMoETorchFFN(nn.Module):
+    def __init__(
+        self,
+        num_experts: int,
+        num_experts_per_tok: int,
+        gate_softmax: bool = False,
+        **kwargs,
+    ):
+        super().__init__()
+        self.experts = nn.ModuleList([
+            TorchFFN(**kwargs) for i in range(num_experts)]
+        )
+        self.gate = nn.Linear(
+            kwargs["dim"], num_experts, bias=False)
+        
+        self.num_experts_per_tok = num_experts_per_tok
+        self.gate_softmax = gate_softmax
+        print("Softmax for Gate:{}".format(str(gate_softmax)))
+
+    def forward(self, x):
+        orig_shape = x.shape
+        x = x.view(-1, x.shape[-1])
+        device = x.device
+
+        if self.gate_softmax:
+            scores = self.gate(x).softmax(dim=-1)
+        else:
+            scores = self.gate(x)
+
+        expert_weights, expert_indices = torch.topk(
+            scores, self.num_experts_per_tok, dim=-1)
+        expert_weights = expert_weights.softmax(dim=-1)
+
+        flat_expert_indices = expert_indices.view(-1)
+
+        x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
+        y = torch.empty_like(x)
+
+        for i, expert in enumerate(self.experts):
+            mask = (flat_expert_indices == i)
+            if mask.any():
+                expert_gpu = expert.to(device)
+                y[mask] = expert(x[mask])
+                del expert_gpu
+                torch.cuda.empty_cache()
+        
+        y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
+        return y.view(*orig_shape)
 
 class MoETorchTransformerBlock(TorchTransformerBlock):
     def __init__(self, layer_id: int, args: ModelArgs):
@@ -83,6 +131,13 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
             num_shards=args.moe["num_experts"] // args.num_gpus,
             **args.moe,
         )
+        """
+        self.feed_forward = SingleGPUMoETorchFFN(
+            dim=args.dim,
+            hidden_dim=args.hidden_dim,
+            **args.moe,
+        )
+        """
 
 
 class MoETorchTransformer(TorchTransformer):

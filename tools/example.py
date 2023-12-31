@@ -46,10 +46,11 @@ def main():
     for file in mmlu_files:
 
         task = file.rstrip('.csv')
-        file_path = mmlu_path + '/' + 'file'
+        file_path = mmlu_path + '/' + file
         df = pd.read_csv(file_path, header=None, usecols=[0])
 
-        os.remove("/workspace/MixtralKit/output_data.json")
+        if os.path.exists("/workspace/MixtralKit/output_data.json"):
+            os.remove("/workspace/MixtralKit/output_data.json")
 
         # 初始化一个字典，用于存储每一层的统计结果
         layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
