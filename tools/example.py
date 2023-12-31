@@ -56,6 +56,8 @@ def main():
         layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
         prompt_num = 100
 
+        print(f"Task {task} begins")
+
         for prompts in df[0]:
             '''
             prompts = [
