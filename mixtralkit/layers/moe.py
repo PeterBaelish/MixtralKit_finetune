@@ -112,7 +112,7 @@ class SingleGPUMoETorchFFN(nn.Module):
             mask = (flat_expert_indices == i)
             if mask.any():
                 expert_gpu = expert.to(device)
-                y[mask] = expert(x[mask])
+                y[mask] = expert_gpu(x[mask])
                 del expert_gpu
                 torch.cuda.empty_cache()
         

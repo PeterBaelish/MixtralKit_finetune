@@ -150,7 +150,8 @@ class Mixtral:
         pad_id = self.tokenizer.pad_id
         tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cuda") # tokens: cpu->gpu
         for k, t in enumerate(prompt_tokens):
-            adj_len = min(len(t), total_len)
+            adj_len = min(len(t), total_len-1)
+            min_prompt_len = min(min_prompt_len, adj_len)
             t = t[: adj_len]
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device="cuda")
         if logprobs:
