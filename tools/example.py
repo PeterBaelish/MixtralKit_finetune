@@ -112,8 +112,8 @@ def main():
 
 def main(args):
     
-    max_batch_size = 4
-    max_seq_len = 2048
+    max_batch_size = 1
+    max_seq_len = 1024
     max_gen_len = 1024
 
     generator = Mixtral.build(
