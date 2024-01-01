@@ -30,15 +30,16 @@ class TorchFFN(nn.Module):
         """
         super().__init__()
 
+        device = torch.device('cpu')
         self.w1 = nn.Linear(
             dim, hidden_dim, bias=False
-        )
+        ).to(device)
         self.w2 = nn.Linear(
             hidden_dim, dim, bias=False
-        )
+        ).to(device)
         self.w3 = nn.Linear(
             dim, hidden_dim, bias=False
-        )
+        ).to(device)
 
     def forward(self, x):
         device = x.device
