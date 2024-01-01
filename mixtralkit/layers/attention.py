@@ -82,7 +82,7 @@ class TorchAttention(nn.Module):
             )
         ).cuda()
 
-    @profile
+    # @profile
     def forward(
         self,
         x: torch.Tensor,

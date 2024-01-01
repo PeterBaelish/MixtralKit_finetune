@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import time
 from collections import defaultdict
 import pandas as pd
 from memory_profiler import profile
@@ -131,12 +132,19 @@ def main(args):
     temperature = 1.0 # for greedy decoding
     top_p = 0.9
 
+    start_time = time.time()
+
     results = generator.text_completion(
         prompts,
         max_gen_len=max_gen_len,
         temperature=temperature,
         top_p=top_p,
     )
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    formatted_time = "{:.3f}".format(elapsed_time)
+    print(f"generation time: {formatted_time} s")
 
     for prompt, result in zip(prompts, results):
         print("="*30 + "Example START" + "="*30 + '\n')

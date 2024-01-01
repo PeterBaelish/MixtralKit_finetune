@@ -120,22 +120,22 @@ class SingleGPUMoETorchFFN(nn.Module):
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
         y = torch.empty_like(x)
 
-        print("Selected experts", expert_indices)
+        # print("Selected experts", expert_indices)
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
             if mask.any():
-                print("before copy:", torch.cuda.memory_allocated())
+                # print("before copy:", torch.cuda.memory_allocated())
                 # expert_gpu = expert.to(device)
                 self.expert_gpu_w1.weight.data.copy_(expert.w1.weight.data)
                 self.expert_gpu_w2.weight.data.copy_(expert.w2.weight.data)
                 self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
-                print("after copy:", torch.cuda.memory_allocated())
+                # print("after copy:", torch.cuda.memory_allocated())
                 # y[mask] = self.expert_gpu(x[mask])
                 y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
                 # del expert_gpu
                 # torch.cuda.empty_cache()
-                print("after del:", torch.cuda.memory_allocated())
+                # print("after del:", torch.cuda.memory_allocated())
         
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
