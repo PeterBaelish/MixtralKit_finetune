@@ -49,6 +49,7 @@ class MoETorchFFN(nn.Module):
             scores, self.num_experts_per_tok, dim=-1)
         expert_weights = expert_weights.softmax(dim=-1)
 
+        '''
         output_data = {
             "expert_indices": expert_indices.tolist()
             # "scores": scores.tolist()
@@ -57,6 +58,7 @@ class MoETorchFFN(nn.Module):
         with open("/workspace/MixtralKit/output_data.json", "a") as file:
             json.dump(output_data, file)
             file.write("\n")
+        '''
 
         # print("Selected experts", expert_indices)
         # print("scores of all experts", scores)

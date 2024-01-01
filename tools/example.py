@@ -25,7 +25,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
+"""
 def main():
     args = parse_args()
     max_batch_size = 4
@@ -106,6 +106,41 @@ def main():
             json.dump(layer_stats_json, outfile)
         
         print(f"Task {task} is  done")
+"""
+
+def main():
+    args = parse_args()
+    max_batch_size = 4
+    max_seq_len = 2048
+    max_gen_len = 1024
+
+    generator = Mixtral.build(
+        ckpt_dir=args.model_weights,
+        tokenizer_path=args.tokenizer,
+        max_seq_len=max_seq_len,
+        max_batch_size=max_batch_size,
+        num_gpus=args.num_gpus,
+    )
+ 
+    prompts = [
+        "Chaos isn't a pit, Chaos is a ladder.",
+        ]
+    
+    temperature = 1.0 # for greedy decoding
+    top_p = 0.9
+
+    results = generator.text_completion(
+        prompts,
+        max_gen_len=max_gen_len,
+        temperature=temperature,
+        top_p=top_p,
+    )
+
+    for prompt, result in zip(prompts, results):
+        print("="*30 + "Example START" + "="*30 + '\n')
+        print("[Prompt]:\n{}\n".format(prompt))
+        print("[Response]:\n{}\n".format(result['generation']))
+        print("="*30 + "Example END" + "="*30 + '\n')
 
 if __name__ == "__main__":
     main()
