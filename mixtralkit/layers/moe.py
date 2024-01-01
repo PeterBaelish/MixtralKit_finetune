@@ -5,7 +5,6 @@ import math
 import json
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
-from memory_profiler import profile
 
 import torch
 import torch.nn.functional as F
@@ -92,7 +91,6 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.gate_softmax = gate_softmax
         print("Softmax for Gate:{}".format(str(gate_softmax)))
 
-    @profile
     def forward(self, x):
         orig_shape = x.shape
         x = x.view(-1, x.shape[-1])

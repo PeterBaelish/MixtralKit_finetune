@@ -5,6 +5,7 @@ import json
 import os
 from collections import defaultdict
 import pandas as pd
+from memory_profiler import profile
 from mixtralkit.mixtral import Mixtral
 
 
@@ -21,6 +22,7 @@ def parse_args():
                         default=None,
                         type=str)
     parser.add_argument('--num-gpus', type=int)
+    parser.add_argument('--profile', action='store_true')
 
     args = parser.parse_args()
     return args
@@ -108,8 +110,8 @@ def main():
         print(f"Task {task} is  done")
 """
 
-def main():
-    args = parse_args()
+def main(args):
+    
     max_batch_size = 4
     max_seq_len = 2048
     max_gen_len = 1024
@@ -143,4 +145,9 @@ def main():
         print("="*30 + "Example END" + "="*30 + '\n')
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    if args.profile:
+        profiled_main = profile(main)
+        profiled_main(args)
+    else:
+        main(args)
