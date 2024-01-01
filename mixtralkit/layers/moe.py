@@ -91,6 +91,16 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.gate_softmax = gate_softmax
         print("Softmax for Gate:{}".format(str(gate_softmax)))
 
+        self.expert_gpu_w1 = nn.Linear(
+            kwargs["dim"], kwargs["hidden_dim"], bias=False
+        ).to("cuda")
+        self.expert_gpu_w2 = nn.Linear(
+            kwargs["hidden_dim"], kwargs["dim"], bias=False
+        ).to("cuda")
+        self.expert_gpu_w3 = nn.Linear(
+            kwargs["dim"], kwargs["hidden_dim"], bias=False
+        ).to("cuda")
+
     def forward(self, x):
         orig_shape = x.shape
         x = x.view(-1, x.shape[-1])
@@ -116,11 +126,15 @@ class SingleGPUMoETorchFFN(nn.Module):
             mask = (flat_expert_indices == i)
             if mask.any():
                 print("before copy:", torch.cuda.memory_allocated())
-                expert_gpu = expert.to(device)
+                # expert_gpu = expert.to(device)
+                self.expert_gpu_w1.copy_(expert.w1)
+                self.expert_gpu_w2.copy_(expert.w2)
+                self.expert_gpu_w3.copy_(expert.w3)
                 print("after copy:", torch.cuda.memory_allocated())
-                y[mask] = expert_gpu(x[mask])
-                del expert_gpu
-                torch.cuda.empty_cache()
+                # y[mask] = self.expert_gpu(x[mask])
+                y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
+                # del expert_gpu
+                # torch.cuda.empty_cache()
                 print("after del:", torch.cuda.memory_allocated())
         
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
