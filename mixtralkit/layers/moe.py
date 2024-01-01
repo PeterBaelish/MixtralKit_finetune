@@ -124,6 +124,8 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
         super().__init__(layer_id, args)
         
         self.attention = TorchAttention(args)
+
+        """
         assert args.moe["num_experts"] % args.num_gpus == 0, "num_experts must be divisible by num_gpus"
         self.feed_forward = MoETorchFFN(
             dim=args.dim,
@@ -132,12 +134,12 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
             **args.moe,
         )
         """
+
         self.feed_forward = SingleGPUMoETorchFFN(
             dim=args.dim,
             hidden_dim=args.hidden_dim,
             **args.moe,
         )
-        """
 
 
 class MoETorchTransformer(TorchTransformer):
