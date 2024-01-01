@@ -127,9 +127,9 @@ class SingleGPUMoETorchFFN(nn.Module):
             if mask.any():
                 print("before copy:", torch.cuda.memory_allocated())
                 # expert_gpu = expert.to(device)
-                self.expert_gpu_w1.copy_(expert.w1)
-                self.expert_gpu_w2.copy_(expert.w2)
-                self.expert_gpu_w3.copy_(expert.w3)
+                self.expert_gpu_w1.weight.data.copy_(expert.w1.weight.data)
+                self.expert_gpu_w2.weight.data.copy_(expert.w2.weight.data)
+                self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
                 print("after copy:", torch.cuda.memory_allocated())
                 # y[mask] = self.expert_gpu(x[mask])
                 y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
