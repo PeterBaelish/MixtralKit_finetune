@@ -11,7 +11,7 @@ from mixtralkit.mixtral import Mixtral
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run an inference of mixtral-8x7b model')
-    parser.add_argument('-m',
+    parser.add_argument('-M',
                         '--model-weights',
                         help='Model weights.',
                         default=None,

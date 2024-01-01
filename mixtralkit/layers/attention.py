@@ -5,6 +5,7 @@ import math
 import torch
 from typing import Optional, Tuple
 from torch import nn
+from memory_profiler import profile
 import torch.nn.functional as F
 from .utils import ModelArgs, repeat_kv
 from .position_embeding import apply_rotary_emb
@@ -81,6 +82,7 @@ class TorchAttention(nn.Module):
             )
         ).cuda()
 
+    @profile
     def forward(
         self,
         x: torch.Tensor,
