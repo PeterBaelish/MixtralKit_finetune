@@ -120,7 +120,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
         y = torch.empty_like(x)
 
-        # print("Selected experts", expert_indices)
+        print("Selected experts", expert_indices)
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)

@@ -126,7 +126,7 @@ def main(args):
     )
  
     prompts = [
-        "Chaos isn't a pit, Chaos is a ladder.",
+        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
         ]
     
     temperature = 1.0 # for greedy decoding
