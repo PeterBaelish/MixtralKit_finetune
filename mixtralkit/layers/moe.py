@@ -4,6 +4,7 @@
 import math
 import json
 import time
+import threading
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -102,6 +103,29 @@ class SingleGPUMoETorchFFN(nn.Module):
             kwargs["dim"], kwargs["hidden_dim"], bias=False
         ).to("cuda")
 
+    def copy_to_gpu(cpu_chunk, gpu_chunk):
+        gpu_chunk.copy_(cpu_chunk)
+
+
+    def multi_threaded_cpu_to_gpu_transfer(self, gpu_tensor, cpu_tensor, num_threads, dim):
+
+        cpu_chunks = torch.chunk(cpu_tensor, num_threads, dim=dim)
+        gpu_chunks = torch.chunk(gpu_tensor, num_threads, dim=dim)
+
+        threads = []
+        for cpu_chunk, gpu_chunk in zip(cpu_chunks, gpu_chunks):
+            thread = threading.Thread(target=self.copy_to_gpu, args=(cpu_chunk, gpu_chunk))
+            threads.append(thread)
+
+        # Starting threads
+        for thread in threads:
+            thread.start()
+
+        # Joining threads
+        for thread in threads:
+            thread.join()
+
+
     def forward(self, x):
         orig_shape = x.shape
         x = x.view(-1, x.shape[-1])
@@ -128,19 +152,24 @@ class SingleGPUMoETorchFFN(nn.Module):
             if mask.any():
                 start_time = time.time()
 
-                self.expert_gpu_w1.weight.data.copy_(expert.w1.weight.data)
-                self.expert_gpu_w2.weight.data.copy_(expert.w2.weight.data)
-                self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
+                # self.expert_gpu_w1.weight.data.copy_(expert.w1.weight.data)
+                # self.expert_gpu_w2.weight.data.copy_(expert.w2.weight.data)
+                # self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
+                
+                num_threads = 16
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 1)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.weight.data, expert.w2.weight.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 1)
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
-                print(f"expert copy time: {elapsed_time} s")
+                print(f"expert copy time: {elapsed_time} ms")
 
                 start_time = time.time()
                 y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
-                print(f"expert compute time: {elapsed_time} s")
+                print(f"expert compute time: {elapsed_time} ms")
         
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
