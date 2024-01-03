@@ -168,7 +168,7 @@ def main(args):
     patch_params['block_sparse_moe.experts.w2'] = experts_params
     patch_params['block_sparse_moe.experts.w3'] = experts_params
 
-    MixtralHQQ.patch_model(generator.model, lambda l: l.half().cuda(), patch_linear_fct, patch_params)
+    MixtralHQQ.patch_model(generator, lambda l: l.half().cuda(), patch_linear_fct, patch_params)
 
     prompts = [
         "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
