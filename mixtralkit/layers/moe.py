@@ -103,9 +103,8 @@ class SingleGPUMoETorchFFN(nn.Module):
             kwargs["dim"], kwargs["hidden_dim"], bias=False
         ).to("cuda")
 
-    def copy_to_gpu(cpu_chunk, gpu_chunk):
+    def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
-
 
     def multi_threaded_cpu_to_gpu_transfer(self, gpu_tensor, cpu_tensor, num_threads, dim):
 
@@ -156,10 +155,10 @@ class SingleGPUMoETorchFFN(nn.Module):
                 # self.expert_gpu_w2.weight.data.copy_(expert.w2.weight.data)
                 # self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
                 
-                num_threads = 16
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 1)
+                num_threads = 4
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.weight.data, expert.w2.weight.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 1)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 0)
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000

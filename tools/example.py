@@ -8,6 +8,8 @@ from collections import defaultdict
 import pandas as pd
 from memory_profiler import profile
 from mixtralkit.mixtral import Mixtral
+from hqq.core.quantize import *
+from hqq.models.hf.mixtral import MixtralHQQ
 
 
 def parse_args():
@@ -111,6 +113,15 @@ def main():
         print(f"Task {task} is  done")
 """
 
+def patch_fct_hqq(linear_layer, quant_config):
+	return HQQLinear(linear_layer, quant_config)
+
+def patch_linear_fct(linear_layer, quant_config):
+	if(quant_config is None):
+		return linear_layer.half().cuda()
+	else:
+		return patch_fct_hqq(linear_layer, quant_config)
+
 def main(args):
     
     max_batch_size = 1
@@ -124,7 +135,41 @@ def main(args):
         max_batch_size=max_batch_size,
         num_gpus=args.num_gpus,
     )
- 
+
+    # #HQQ - 4bit - No stats compression
+    patch_params   = {}
+    attn_prams     = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=False, quant_scale=False)
+    experts_params = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=False, quant_scale=False)
+
+    # #HQQ - 4bit - Compress stats (z_g256)
+    '''
+    patch_params = {}
+    attn_prams     = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True)
+    attn_prams['scale_quant_params']['group_size'] = 256
+    experts_params = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True)
+    experts_params['scale_quant_params']['group_size'] = 256
+    '''
+
+    #HQQ_4-bit_g64_z_s256 (attn)/ HQQ_2bit_g16_z_s128 (experts):   
+    '''
+    patch_params   = {}
+    attn_prams     = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True) 
+    attn_prams['scale_quant_params']['group_size'] = 256
+    experts_params = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=True) 
+    '''
+
+    #Attn
+    patch_params['self_attn.q_proj'] = attn_prams
+    patch_params['self_attn.k_proj'] = attn_prams
+    patch_params['self_attn.v_proj'] = attn_prams
+    patch_params['self_attn.o_proj'] = attn_prams
+    #Experts
+    patch_params['block_sparse_moe.experts.w1'] = experts_params
+    patch_params['block_sparse_moe.experts.w2'] = experts_params
+    patch_params['block_sparse_moe.experts.w3'] = experts_params
+
+    MixtralHQQ.patch_model(generator.model, lambda l: l.half().cuda(), patch_linear_fct, patch_params)
+
     prompts = [
         "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
         ]
