@@ -156,9 +156,9 @@ class SingleGPUMoETorchFFN(nn.Module):
                 # self.expert_gpu_w3.weight.data.copy_(expert.w3.weight.data)
                 
                 num_threads = 4
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.weight.data, expert.w2.weight.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
