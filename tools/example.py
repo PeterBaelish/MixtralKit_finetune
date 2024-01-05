@@ -126,7 +126,7 @@ def main(args):
     
     max_batch_size = 1
     max_seq_len = 1024
-    max_gen_len = 1024
+    max_gen_len = 128
 
     generator = Mixtral.build(
         ckpt_dir=args.model_weights,
@@ -168,7 +168,7 @@ def main(args):
     patch_params['block_sparse_moe.experts.w2'] = experts_params
     patch_params['block_sparse_moe.experts.w3'] = experts_params
 
-    # MixtralHQQ.patch_model(generator, lambda l: l.half(), patch_linear_fct, patch_params)
+    MixtralHQQ.patch_model(generator, lambda l: l.half(), patch_linear_fct, patch_params)
 
     prompts = [
         "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
