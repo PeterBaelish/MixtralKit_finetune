@@ -118,7 +118,7 @@ def patch_fct_hqq(linear_layer, quant_config):
 
 def patch_linear_fct(linear_layer, quant_config):
 	if(quant_config is None):
-		return linear_layer
+		return linear_layer.half()
 	else:
 		return patch_fct_hqq(linear_layer, quant_config)
 
