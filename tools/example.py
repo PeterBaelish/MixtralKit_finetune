@@ -118,7 +118,7 @@ def patch_fct_hqq(linear_layer, quant_config):
 
 def patch_linear_fct(linear_layer, quant_config):
 	if(quant_config is None):
-		return linear_layer.half()
+		return linear_layer
 	else:
 		return patch_fct_hqq(linear_layer, quant_config)
 
@@ -169,7 +169,7 @@ def main(args):
     patch_params['block_sparse_moe.experts.w2'] = experts_params
     patch_params['block_sparse_moe.experts.w3'] = experts_params
 
-    MixtralHQQ.patch_model(generator, lambda l: l.half(), patch_linear_fct, patch_params)
+    MixtralHQQ.patch_model(generator, lambda l: l, patch_linear_fct, patch_params)
 
     prompts = [
         "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
