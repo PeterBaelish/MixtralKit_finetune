@@ -113,14 +113,8 @@ def main():
         print(f"Task {task} is  done")
 """
 
-def patch_fct_hqq(linear_layer, quant_config):
-	return HQQLinear(linear_layer, quant_config)
-
 def patch_linear_fct(linear_layer, quant_config):
-	if(quant_config is None):
-		return linear_layer
-	else:
-		return patch_fct_hqq(linear_layer, quant_config)
+	return HQQLinear(linear_layer, quant_config)
 
 def main(args):
     
