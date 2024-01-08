@@ -137,19 +137,19 @@ def main(args):
     )
 
     #HQQ - 4bit - No stats compression
-    '''
+    
     patch_params   = {}
     attn_prams     = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
     experts_params = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
-    '''
-    #HQQ - 4bit - Compress stats (z_g256)
     
+    #HQQ - 4bit - Compress stats (z_g256)
+    '''
     patch_params = {}
     attn_prams     = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True)
     attn_prams['scale_quant_params']['group_size'] = 256
     experts_params = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=True)
     experts_params['scale_quant_params']['group_size'] = 256
-    
+    '''
 
     #HQQ_4-bit_g64_z_s256 (attn)/ HQQ_2bit_g16_z_s128 (experts):   
     '''
