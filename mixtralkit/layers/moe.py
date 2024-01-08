@@ -155,7 +155,7 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 num_threads = 4
                 
-                if self.layer_id > 0:
+                if self.layer_id > 3:
                     self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 0)
                     self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.weight.data, expert.w2.weight.data, num_threads, 0)
                     self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 0)
