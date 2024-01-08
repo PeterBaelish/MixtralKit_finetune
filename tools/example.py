@@ -30,8 +30,8 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-"""
-def main():
+
+def mmlu_eval():
     args = parse_args()
     max_batch_size = 4
     max_seq_len = 128
@@ -57,7 +57,6 @@ def main():
         if os.path.exists("/workspace/MixtralKit/output_data.json"):
             os.remove("/workspace/MixtralKit/output_data.json")
 
-        # 初始化一个字典，用于存储每一层的统计结果
         layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
         prompt_num = 100
 
@@ -111,7 +110,6 @@ def main():
             json.dump(layer_stats_json, outfile)
         
         print(f"Task {task} is  done")
-"""
 
 def patch_linear_fct(linear_layer, quant_config):
 	return HQQLinear(linear_layer, quant_config)
