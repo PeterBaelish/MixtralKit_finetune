@@ -107,12 +107,6 @@ class SingleGPUMoETorchFFN(nn.Module):
             kwargs["dim"], kwargs["hidden_dim"], bias=False
         ).to(device)
 
-        quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
-
-        self.expert_gpu_w1 = HQQLinear(self.expert_w1, quant_config).cuda()
-        self.expert_gpu_w2 = HQQLinear(self.expert_w2, quant_config).cuda()
-        self.expert_gpu_w3 = HQQLinear(self.expert_w3, quant_config).cuda()
-
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
 
@@ -163,12 +157,12 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 num_threads = 4
                 # print(self.expert_gpu_w1.W_q.data)
-                print(self.expert_gpu_w1)
+                print(self.expert_w1)
                 print(expert.w1)
 
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
