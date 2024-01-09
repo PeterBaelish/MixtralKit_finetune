@@ -172,7 +172,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                 print(f"expert copy time: {elapsed_time} ms")
 
                 start_time = time.time()
-                y[mask] = self.expert.w2(F.silu(self.expert.w1(x[mask])) * self.expert.w3(x[mask]))
+                y[mask] = expert.w2(F.silu(expert.w1(x[mask])) * expert.w3(x[mask]))
 
                 expert.w1.cpu()
                 expert.w2.cpu()
