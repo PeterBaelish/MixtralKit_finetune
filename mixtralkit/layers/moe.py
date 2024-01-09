@@ -109,9 +109,9 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
 
-        self.expert_gpu_w1 = HQQLinear(self.expert_w1, quant_config, del_orig=True).cuda()
-        self.expert_gpu_w2 = HQQLinear(self.expert_w2, quant_config, del_orig=True).cuda()
-        self.expert_gpu_w3 = HQQLinear(self.expert_w3, quant_config, del_orig=True).cuda()
+        self.expert_gpu_w1 = HQQLinear(self.expert_w1, quant_config).cuda()
+        self.expert_gpu_w2 = HQQLinear(self.expert_w2, quant_config).cuda()
+        self.expert_gpu_w3 = HQQLinear(self.expert_w3, quant_config).cuda()
 
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
