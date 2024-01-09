@@ -15,6 +15,7 @@ from .utils import ModelArgs
 from .attention import TorchAttention, FairScaleAttention
 from .ffn import TorchFFN, FairScaleFFN
 from .transformer import TorchTransformerBlock, TorchTransformer, FairScaleTransformer
+from hqq.core.quantize import *
 
 
 class MoETorchFFN(nn.Module):
@@ -97,13 +98,19 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         self.expert_gpu_w1 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).to("cuda")
+        ).cuda()
         self.expert_gpu_w2 = nn.Linear(
             kwargs["hidden_dim"], kwargs["dim"], bias=False
-        ).to("cuda")
+        ).cuda()
         self.expert_gpu_w3 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).to("cuda")
+        ).cuda()
+
+        quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
+
+        self.expert_gpu_w1 = HQQLinear(self.expert_gpu_w1, quant_config, del_orig=True).cuda()
+        self.expert_gpu_w2 = HQQLinear(self.expert_gpu_w2, quant_config, del_orig=True).cuda()
+        self.expert_gpu_w3 = HQQLinear(self.expert_gpu_w3, quant_config, del_orig=True).cuda()
 
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
@@ -155,14 +162,9 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 num_threads = 4
                 
-                if self.layer_id > 3:
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.weight.data, expert.w1.weight.data, num_threads, 0)
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.weight.data, expert.w2.weight.data, num_threads, 0)
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.weight.data, expert.w3.weight.data, num_threads, 0)
-                else:
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
-                    self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
