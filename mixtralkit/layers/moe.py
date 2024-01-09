@@ -162,10 +162,8 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 num_threads = 4
                 # print(self.expert_gpu_w1.W_q.data)
-                for name, param in self.expert_gpu_w1.named_parameters():
-                    print(f"{name}: {param.size()}")
-                for name, param in expert.w1.named_parameters():
-                    print(f"{name}: {param.size()}")
+                print(self.expert_gpu_w1)
+                print(expert.w1)
 
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
