@@ -98,13 +98,13 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         self.expert_gpu_w1 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).cuda()
+        ).cuda().float()
         self.expert_gpu_w2 = nn.Linear(
             kwargs["hidden_dim"], kwargs["dim"], bias=False
-        ).cuda()
+        ).cuda().float()
         self.expert_gpu_w3 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).cuda()
+        ).cuda().float()
 
         quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
 
