@@ -96,15 +96,16 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.gate_softmax = gate_softmax
         print("Softmax for Gate:{}".format(str(gate_softmax)))
 
+        device = torch.device('cpu')
         self.expert_w1 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        )
+        ).to(device)
         self.expert_w2 = nn.Linear(
             kwargs["hidden_dim"], kwargs["dim"], bias=False
-        )
+        ).to(device)
         self.expert_w3 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        )
+        ).to(device)
 
         quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
 
