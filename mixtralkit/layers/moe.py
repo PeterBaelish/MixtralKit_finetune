@@ -171,7 +171,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                 print(f"expert copy time: {elapsed_time} ms")
 
                 start_time = time.time()
-                y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask]).float()).half() * self.expert_gpu_w3(x[mask]))
+                y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert compute time: {elapsed_time} ms")
