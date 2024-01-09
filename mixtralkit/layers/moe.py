@@ -161,7 +161,8 @@ class SingleGPUMoETorchFFN(nn.Module):
                 start_time = time.time()
 
                 num_threads = 4
-                
+                print(self.expert_gpu_w1.W_q.data)
+                print(expert.w1.W_q.data)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
