@@ -157,19 +157,26 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 num_threads = 4
                 # print(self.expert_gpu_w1.W_q.data)
-                print(self.expert_w1)
+                # print(self.expert_w1)
                 print(expert.w1)
 
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+                expert.w1.cuda()
+                expert.w2.cuda()
+                expert.w3.cuda()
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert copy time: {elapsed_time} ms")
 
                 start_time = time.time()
-                y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
+                y[mask] = self.expert.w2(F.silu(self.expert.w1(x[mask])) * self.expert.w3(x[mask]))
+
+                expert.w1.cpu()
+                expert.w2.cpu()
+                expert.w3.cpu()
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert compute time: {elapsed_time} ms")
