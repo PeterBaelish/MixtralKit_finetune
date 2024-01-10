@@ -95,18 +95,16 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.num_experts_per_tok = num_experts_per_tok
         self.gate_softmax = gate_softmax
         print("Softmax for Gate:{}".format(str(gate_softmax)))
-        '''
-        device = torch.device('cpu')
-        self.expert_w1 = nn.Linear(
+        ''''''
+        self.expert_gpu_w1 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).to(device)
-        self.expert_w2 = nn.Linear(
+        )
+        self.expert_gpu_w2 = nn.Linear(
             kwargs["hidden_dim"], kwargs["dim"], bias=False
-        ).to(device)
-        self.expert_w3 = nn.Linear(
+        )
+        self.expert_gpu_w3 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
-        ).to(device)
-        '''
+        )
 
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
@@ -157,17 +155,29 @@ class SingleGPUMoETorchFFN(nn.Module):
                 start_time = time.time()
 
                 num_threads = 4
-                # print(self.expert_gpu_w1.W_q.data)
-                # print(self.expert_w1)
-                print(expert.w1)
 
-                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
-                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
-                # self.multi_threaded_cpu_to_gpu_transfer(self.expert_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
-                expert.w1.cuda()
-                expert.w2.cuda()
-                expert.w3.cuda()
-                torch.cuda.empty_cache()
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+
+                #copy meta
+                self.expert_gpu_w1.meta = {
+                    key: value.to('cuda') if torch.is_tensor(value) else value
+                    for key, value in expert.w1.meta.items()
+                }
+                self.expert_gpu_w2.meta = {
+                    key: value.to('cuda') if torch.is_tensor(value) else value
+                    for key, value in expert.w2.meta.items()
+                }
+                self.expert_gpu_w3.meta = {
+                    key: value.to('cuda') if torch.is_tensor(value) else value
+                    for key, value in expert.w3.meta.items()
+                }
+
+                '''
+                self.ready        = False
+                self.in_gpu       = False
+                '''
 
                 memory_stats = torch.cuda.memory_stats()
                 print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
@@ -179,10 +189,6 @@ class SingleGPUMoETorchFFN(nn.Module):
                 start_time = time.time()
                 y[mask] = expert.w2(F.silu(expert.w1(x[mask])) * expert.w3(x[mask]))
 
-                expert.w1.cpu()
-                expert.w2.cpu()
-                expert.w3.cpu()
-                torch.cuda.empty_cache()
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert compute time: {elapsed_time} ms")

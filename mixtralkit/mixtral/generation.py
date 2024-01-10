@@ -89,8 +89,7 @@ class Mixtral:
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
-        # torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        torch.set_default_tensor_type(torch.cuda.FloatTensor)
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = MoETorchTransformer(model_args)
         print(f"=== created Mixtral 8x7B. Experts spread over {num_gpus} GPUs ===")
         model_param_keys = []
