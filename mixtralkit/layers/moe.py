@@ -95,7 +95,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.num_experts_per_tok = num_experts_per_tok
         self.gate_softmax = gate_softmax
         print("Softmax for Gate:{}".format(str(gate_softmax)))
-
+        '''
         device = torch.device('cpu')
         self.expert_w1 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
@@ -106,6 +106,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.expert_w3 = nn.Linear(
             kwargs["dim"], kwargs["hidden_dim"], bias=False
         ).to(device)
+        '''
 
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
