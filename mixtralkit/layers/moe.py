@@ -169,6 +169,9 @@ class SingleGPUMoETorchFFN(nn.Module):
                 expert.w3.cuda()
                 torch.cuda.empty_cache()
 
+                memory_stats = torch.cuda.memory_stats()
+                print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
+
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert copy time: {elapsed_time} ms")
