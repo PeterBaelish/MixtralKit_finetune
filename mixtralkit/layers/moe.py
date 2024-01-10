@@ -15,7 +15,6 @@ from .utils import ModelArgs
 from .attention import TorchAttention, FairScaleAttention
 from .ffn import TorchFFN, FairScaleFFN
 from .transformer import TorchTransformerBlock, TorchTransformer, FairScaleTransformer
-from hqq.core.quantize import *
 
 
 class MoETorchFFN(nn.Module):
@@ -152,14 +151,21 @@ class SingleGPUMoETorchFFN(nn.Module):
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
             if mask.any():
-                start_time = time.time()
-
+            
                 num_threads = 4
+
+                start_time = time.time()
 
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
                 self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
 
+                end_time = time.time()
+                elapsed_time = (end_time - start_time) * 1000
+                print(f"expert weight copy time: {elapsed_time} ms")
+
+                start_time = time.time()
+                
                 #copy meta
                 self.expert_gpu_w1.meta = {
                     key: value.to('cuda') if torch.is_tensor(value) else value
@@ -173,18 +179,15 @@ class SingleGPUMoETorchFFN(nn.Module):
                     key: value.to('cuda') if torch.is_tensor(value) else value
                     for key, value in expert.w3.meta.items()
                 }
-
-                '''
-                self.ready        = False
-                self.in_gpu       = False
-                '''
-
-                memory_stats = torch.cuda.memory_stats()
-                print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
-
+                
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
-                print(f"expert copy time: {elapsed_time} ms")
+                print(f"expert meta copy time: {elapsed_time} ms")
+
+                print(self.expert_gpu_w1.meta)
+
+                # memory_stats = torch.cuda.memory_stats()
+                # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
                 start_time = time.time()
                 y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))

@@ -70,7 +70,6 @@ class TorchTransformerBlock(nn.Module):
         h = x + self.attention.forward(
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
-        print(h)
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
@@ -193,7 +192,6 @@ class TorchTransformer(nn.Module):
         layer_id = 0
         for layer in self.layers:
             # print("layer: ", layer_id)
-            print(h)
             h = layer(h, start_pos, freqs_cis, mask)
             layer_id = layer_id + 1
         h = self.norm(h)
