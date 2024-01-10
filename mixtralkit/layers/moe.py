@@ -167,6 +167,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                 expert.w1.cuda()
                 expert.w2.cuda()
                 expert.w3.cuda()
+                torch.cuda.empty_cache()
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
@@ -178,6 +179,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                 expert.w1.cpu()
                 expert.w2.cpu()
                 expert.w3.cpu()
+                torch.cuda.empty_cache()
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
                 print(f"expert compute time: {elapsed_time} ms")
