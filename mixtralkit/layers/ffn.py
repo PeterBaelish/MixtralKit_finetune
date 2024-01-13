@@ -49,7 +49,7 @@ class TorchFFN_GPU_HQQ(nn.Module):
 
     def forward(self, x):
         device = x.device
-        x = x.to(self.w1.weight.device)
+        x = x.to(self.w1.W_q.device)
         return self.w2(F.silu(self.w1(x)) * self.w3(x)).to(device)
 
 class TorchFFN(nn.Module):
