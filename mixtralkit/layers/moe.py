@@ -13,8 +13,10 @@ import torch.nn.functional as F
 from torch import nn
 from .utils import ModelArgs
 from .attention import TorchAttention, FairScaleAttention
-from .ffn import TorchFFN, FairScaleFFN
+from .ffn import TorchFFN_GPU, TorchFFN, FairScaleFFN
 from .transformer import TorchTransformerBlock, TorchTransformer, FairScaleTransformer
+from .norm import RMSNorm
+from .position_embeding import precompute_freqs_cis
 
 
 class MoETorchFFN(nn.Module):
@@ -93,18 +95,17 @@ class SingleGPUMoETorchFFN(nn.Module):
         
         self.num_experts_per_tok = num_experts_per_tok
         self.gate_softmax = gate_softmax
-        print("Softmax for Gate:{}".format(str(gate_softmax)))
-        ''''''
-        self.expert_gpu_w1 = nn.Linear(
-            kwargs["dim"], kwargs["hidden_dim"], bias=False
-        )
-        self.expert_gpu_w2 = nn.Linear(
-            kwargs["hidden_dim"], kwargs["dim"], bias=False
-        )
-        self.expert_gpu_w3 = nn.Linear(
-            kwargs["dim"], kwargs["hidden_dim"], bias=False
-        )
 
+        self.num_expert_cache = 2
+        self.loaded_expert = [-1] * self.num_expert_cache
+
+        print("Softmax for Gate:{}".format(str(gate_softmax)))
+
+        self.experts_gpu = nn.ModuleList([
+            TorchFFN_GPU(**kwargs) for i in range(self.num_expert_cache)]
+        )
+        
+        
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
 
@@ -126,6 +127,36 @@ class SingleGPUMoETorchFFN(nn.Module):
         for thread in threads:
             thread.join()
 
+    def load_expert_cpu_to_gpu(self, expert, gpu_expert, num_threads):
+        start_time = time.time()
+
+        self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
+        self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
+        self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+
+        end_time = time.time()
+        elapsed_time = (end_time - start_time) * 1000
+        print(f"expert weight copy time: {elapsed_time} ms")
+
+        start_time = time.time()
+        
+        #copy meta
+        self.experts_gpu[gpu_expert].w1.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w1.meta.items()
+        }
+        self.experts_gpu[gpu_expert].w2.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w2.meta.items()
+        }
+        self.experts_gpu[gpu_expert].w3.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w3.meta.items()
+        }
+        
+        end_time = time.time()
+        elapsed_time = (end_time - start_time) * 1000
+        print(f"expert meta copy time: {elapsed_time} ms")
 
     def forward(self, x):
         orig_shape = x.shape
@@ -145,6 +176,8 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
         y = torch.empty_like(x)
+        
+        gpu_expert = 0
 
         print("Selected experts", expert_indices)
 
@@ -154,43 +187,23 @@ class SingleGPUMoETorchFFN(nn.Module):
             
                 num_threads = 4
 
-                start_time = time.time()
+                if i not in self.loaded_expert:
+                    if -1 in self.loaded_expert:
+                        gpu_expert = self.loaded_expert.index(-1)
+                    else:
+                        gpu_expert = (gpu_expert + 1) % self.num_expert_cache
+                        #TODO: LRU cache
+                    self.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
+                    self.loaded_expert[gpu_expert] = i
+                else:
+                    gpu_expert = self.loaded_expert.index(i)
 
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
-                self.multi_threaded_cpu_to_gpu_transfer(self.expert_gpu_w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
-
-                end_time = time.time()
-                elapsed_time = (end_time - start_time) * 1000
-                print(f"expert weight copy time: {elapsed_time} ms")
-
-                start_time = time.time()
-                
-                #copy meta
-                self.expert_gpu_w1.meta = {
-                    key: value.to('cuda') if torch.is_tensor(value) else value
-                    for key, value in expert.w1.meta.items()
-                }
-                self.expert_gpu_w2.meta = {
-                    key: value.to('cuda') if torch.is_tensor(value) else value
-                    for key, value in expert.w2.meta.items()
-                }
-                self.expert_gpu_w3.meta = {
-                    key: value.to('cuda') if torch.is_tensor(value) else value
-                    for key, value in expert.w3.meta.items()
-                }
-                
-                end_time = time.time()
-                elapsed_time = (end_time - start_time) * 1000
-                print(f"expert meta copy time: {elapsed_time} ms")
-
-                print(self.expert_gpu_w1.meta)
-
+                # print(self.expert_gpu_w1.meta)
                 # memory_stats = torch.cuda.memory_stats()
                 # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
                 start_time = time.time()
-                y[mask] = self.expert_gpu_w2(F.silu(self.expert_gpu_w1(x[mask])) * self.expert_gpu_w3(x[mask]))
+                y[mask] = self.experts_gpu[gpu_expert](x[mask])
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
@@ -221,6 +234,117 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
             layer_id=layer_id,
             **args.moe,
         )
+
+class PreloadMoETorchTransformer(TorchTransformer):
+    def __init__(self, params: ModelArgs):
+        super().__init__(params)
+
+        self.layers = torch.nn.ModuleList()
+        for layer_id in range(params.n_layers):
+            self.layers.append(MoETorchTransformerBlock(layer_id, params))
+        
+        self.preload_stream = torch.cuda.Stream()
+
+    @torch.inference_mode()
+    def forward(self, tokens: torch.Tensor, start_pos: int):
+        """
+        Perform a forward pass through the Transformer model.
+
+        Args:
+            tokens (torch.Tensor): Input token indices.
+            start_pos (int): Starting position for attention caching.
+
+        Returns:
+            torch.Tensor: Output logits after applying the Transformer model.
+
+        """
+        _bsz, seqlen = tokens.shape
+        h = self.tok_embeddings(tokens)
+        self.freqs_cis = self.freqs_cis.to(h.device)
+        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+
+        mask = None
+        if seqlen > 1:
+            mask = torch.full(
+                (seqlen, seqlen), float("-inf"), device=tokens.device
+            )
+
+            mask = torch.triu(mask, diagonal=1)
+
+            # When performing key-value caching, we compute the attention scores
+            # only for the new sequence. Thus, the matrix of scores is of size
+            # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
+            # j > cache_len + i, since row i corresponds to token cache_len + i.
+            mask = torch.hstack([
+                torch.zeros((seqlen, start_pos), device=tokens.device),
+                mask
+            ]).type_as(h)
+
+        for i, layer in enumerate(self.layers):
+
+            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+            
+            h = h + layer.attention.forward(
+                layer.attention_norm(h), start_pos, freqs_cis, mask
+            )
+            
+            if self.preload_stream is not None:
+                self.preload_stream.synchronize()
+            
+            with torch.cuda.stream(self.preload_stream):
+                if next_feedforward is not None:
+                    gpu_expert = 0
+
+                    if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
+                        flat_expert_indices = torch.tensor([0, 1])
+                        for i, expert in enumerate(next_feedforward.experts):
+                            expert_mask = (flat_expert_indices == i)
+                            if expert_mask.any():
+                                num_threads = 4
+                                if i not in next_feedforward.loaded_expert:
+                                    if -1 in next_feedforward.loaded_expert:
+                                        gpu_expert = next_feedforward.loaded_expert.index(-1)
+                                    else:
+                                        gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
+                                    next_feedforward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
+                                    next_feedforward.loaded_expert[gpu_expert] = i
+                                else:
+                                    gpu_expert = next_feedforward.loaded_expert.index(i)
+                    else: # Decode
+                        x = layer.ffn_norm(h)
+                        x = x.view(-1, x.shape[-1])
+
+                        if next_feedforward.gate_softmax:
+                            scores = next_feedforward.gate(x).softmax(dim=-1)
+                        else:
+                            scores = next_feedforward.gate(x)
+
+                        expert_weights, expert_indices = torch.topk(
+                            scores, next_feedforward.num_experts_per_tok, dim=-1)
+                        
+                        flat_expert_indices = expert_indices.view(-1)
+
+                        print("Predict experts", expert_indices)
+                        for i, expert in enumerate(next_feedforward.experts):
+                            expert_mask = (flat_expert_indices == i)
+                            if expert_mask.any():
+                                num_threads = 4
+                                if i not in next_feedforward.loaded_expert:
+                                    if -1 in next_feedforward.loaded_expert:
+                                        gpu_expert = next_feedforward.loaded_expert.index(-1)
+                                    else:
+                                        gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
+                                        #TODO: LRU cache
+                                    next_feedforward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
+                                    next_feedforward.loaded_expert[gpu_expert] = i
+                                else:
+                                    gpu_expert = next_feedforward.loaded_expert.index(i)
+
+            h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+        
+        h = self.norm(h)
+        output = self.output(h).float()
+        return output
 
 
 class MoETorchTransformer(TorchTransformer):

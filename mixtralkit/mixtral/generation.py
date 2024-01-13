@@ -15,7 +15,8 @@ import torch.nn.functional as F
 from mixtralkit.layers import (
     Tokenizer,
     MoETorchTransformer,
-    MixtralModelArgs
+    MixtralModelArgs,
+    PreloadMoETorchTransformer
 )
 from mixtralkit.utils import sample_top_p
 from mixtralkit.utils.generation import (
@@ -90,7 +91,7 @@ class Mixtral:
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        model = MoETorchTransformer(model_args)
+        model = PreloadMoETorchTransformer(model_args)
         print(f"=== created Mixtral 8x7B. Experts spread over {num_gpus} GPUs ===")
         model_param_keys = []
         for key, value in model.named_parameters():
@@ -105,7 +106,7 @@ class Mixtral:
 
         return Mixtral(model, tokenizer)
     
-    def __init__(self, model: MoETorchTransformer, tokenizer: Tokenizer):
+    def __init__(self, model: PreloadMoETorchTransformer, tokenizer: Tokenizer):
         self.model = model
         self.tokenizer = tokenizer
 
@@ -172,23 +173,17 @@ class Mixtral:
         for cur_pos in range(min_prompt_len, total_len):
             print("==============================================================================")
             print("current_position:", cur_pos)
-            # print("current token id:", tokens[0, prev_pos].tolist())
             print("current token:", self.tokenizer.decode(tokens[0, prev_pos].tolist()))
-            '''
-            output_data = {
-                "current token": self.tokenizer.decode(tokens[0, prev_pos].tolist()),
-                "current token id": tokens[0, prev_pos].tolist(),
-                "current_position": cur_pos
-            }
-            
-            with open("/workspace/MixtralKit/output_data.json", "a") as file:
-                json.dump(output_data, file)
-                file.write("\n")
-            '''
             
             start_time = time.time()
 
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            '''
+            probs, _ = torch.max(torch.softmax(logits[:, -1], dim=-1),dim=1)
+            with open("/workspace/MixtralKit/output_data.json", "a") as file:
+                json.dump(probs, file)
+                file.write("\n")
+            '''
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)

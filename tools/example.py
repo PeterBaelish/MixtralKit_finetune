@@ -6,7 +6,6 @@ import os
 import time
 from collections import defaultdict
 import pandas as pd
-from memory_profiler import profile
 from mixtralkit.mixtral import Mixtral
 from hqq.core.quantize import *
 from hqq.models.hf.mixtral import MixtralHQQ
@@ -25,25 +24,14 @@ def parse_args():
                         default=None,
                         type=str)
     parser.add_argument('--num-gpus', type=int)
-    parser.add_argument('--profile', action='store_true')
 
     args = parser.parse_args()
     return args
 
 
-def mmlu_eval():
-    args = parse_args()
-    max_batch_size = 4
-    max_seq_len = 128
-    max_gen_len = 128
+def mmlu_eval(generator):
 
-    generator = Mixtral.build(
-        ckpt_dir=args.model_weights,
-        tokenizer_path=args.tokenizer,
-        max_seq_len=max_seq_len,
-        max_batch_size=max_batch_size,
-        num_gpus=args.num_gpus,
-    )
+    max_gen_len = 128
 
     mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
@@ -114,12 +102,41 @@ def mmlu_eval():
 def patch_linear_fct(linear_layer, quant_config):
 	return HQQLinear(linear_layer, quant_config)
 
-def main(args):
-    
-    max_batch_size = 1
-    max_seq_len = 1024
+def main(generator):
+
     max_gen_len = 128
 
+    prompts = [
+        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
+        ]
+    
+    temperature = 1.0 # for greedy decoding
+    top_p = 0.9
+
+    start_time = time.time()
+
+    results = generator.text_completion(
+        prompts,
+        max_gen_len=max_gen_len,
+        temperature=temperature,
+        top_p=top_p,
+    )
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    formatted_time = "{:.3f}".format(elapsed_time)
+    print(f"generation time: {formatted_time} s")
+
+    for prompt, result in zip(prompts, results):
+        print("="*30 + "Example START" + "="*30 + '\n')
+        print("[Prompt]:\n{}\n".format(prompt))
+        print("[Response]:\n{}\n".format(result['generation']))
+        print("="*30 + "Example END" + "="*30 + '\n')
+
+def init(args):
+    max_batch_size = 1
+    max_seq_len = 1024
+    
     generator = Mixtral.build(
         ckpt_dir=args.model_weights,
         tokenizer_path=args.tokenizer,
@@ -163,37 +180,9 @@ def main(args):
 
     MixtralHQQ.patch_model(generator, lambda l: l, patch_linear_fct, patch_params)
 
-    prompts = [
-        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
-        ]
-    
-    temperature = 1.0 # for greedy decoding
-    top_p = 0.9
-
-    start_time = time.time()
-
-    results = generator.text_completion(
-        prompts,
-        max_gen_len=max_gen_len,
-        temperature=temperature,
-        top_p=top_p,
-    )
-
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    formatted_time = "{:.3f}".format(elapsed_time)
-    print(f"generation time: {formatted_time} s")
-
-    for prompt, result in zip(prompts, results):
-        print("="*30 + "Example START" + "="*30 + '\n')
-        print("[Prompt]:\n{}\n".format(prompt))
-        print("[Response]:\n{}\n".format(result['generation']))
-        print("="*30 + "Example END" + "="*30 + '\n')
+    return generator
 
 if __name__ == "__main__":
     args = parse_args()
-    if args.profile:
-        profiled_main = profile(main)
-        profiled_main(args)
-    else:
-        main(args)
+    generator = init(args)
+    main(generator)
