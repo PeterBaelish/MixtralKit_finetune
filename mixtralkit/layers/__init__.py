@@ -1,4 +1,4 @@
 from .attention import TorchAttention, FairScaleAttention
 from .tokenizer import Tokenizer
-from .moe import MoETorchTransformer
+from .moe import MoETorchTransformer, PreloadMoETorchTransformer
 from .utils import MixtralModelArgs, ModelArgs
