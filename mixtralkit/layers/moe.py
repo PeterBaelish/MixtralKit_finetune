@@ -7,6 +7,8 @@ import time
 import threading
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
+import pycuda.driver as cuda_py
+import pycuda.autoinit
 
 import torch
 import torch.nn.functional as F
@@ -247,7 +249,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(MoETorchTransformerBlock(layer_id, params))
         
-        self.preload_stream = torch.cuda.Stream()
+        least_priority, greatest_priority = cuda_py.Context.get_device().get_stream_priority_range()
+        self.preload_stream = cuda_py.Stream(flags=cuda_py.stream_flags.NON_BLOCKING, priority=least_priority)
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
