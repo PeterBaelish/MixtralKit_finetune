@@ -7,8 +7,6 @@ import time
 import threading
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
-import pycuda.driver as cuda_py
-import pycuda.autoinit
 
 import torch
 import torch.nn.functional as F
@@ -103,8 +101,6 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         print("Softmax for Gate:{}".format(str(gate_softmax)))
 
-        # TODO: this should init on CPU, and load to GPU after quant
-        #       We always have noneType here, don't know why
         self.experts_gpu = nn.ModuleList([
             TorchFFN_HQQ(**kwargs) for i in range(self.num_expert_cache)]
         )
@@ -249,8 +245,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(MoETorchTransformerBlock(layer_id, params))
         
-        least_priority, greatest_priority = cuda_py.Context.get_device().get_stream_priority_range()
-        self.preload_stream = cuda_py.Stream(flags=cuda_py.stream_flags.NON_BLOCKING, priority=least_priority)
+        self.preload_stream = torch.cuda.Stream()
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
@@ -297,7 +292,9 @@ class PreloadMoETorchTransformer(TorchTransformer):
             
             if self.preload_stream is not None:
                 self.preload_stream.synchronize()
+            
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
             with torch.cuda.stream(self.preload_stream):
                 if next_feedforward is not None:
                     gpu_expert = 0
@@ -346,7 +343,9 @@ class PreloadMoETorchTransformer(TorchTransformer):
                                     next_feedforward.loaded_expert[gpu_expert] = i
                                 else:
                                     gpu_expert = next_feedforward.loaded_expert.index(i)
+                print("preload stream end time:", time.time())
 
+            print("normal stream start time", time.time())
             h = h + layer.feed_forward.forward(layer.ffn_norm(h))
         
         h = self.norm(h)
