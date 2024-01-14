@@ -283,13 +283,13 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 mask
             ]).type_as(h)
 
-        with torch.cuda.stream(self.normal_stream):
-            h = h + self.layers[0].attention.forward(
-                self.layers[0].attention_norm(h), start_pos, freqs_cis, mask
-            )
-
         for i, layer in enumerate(self.layers):
 
+            with torch.cuda.stream(self.normal_stream):
+                h = h + layer.attention.forward(
+                    layer.attention_norm(h), start_pos, freqs_cis, mask
+                )
+                        
             torch.cuda.synchronize()
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
@@ -346,16 +346,9 @@ class PreloadMoETorchTransformer(TorchTransformer):
             with torch.cuda.stream(self.normal_stream):
                 print("normal stream start time", time.time())
                 h = h + layer.feed_forward.forward(layer.ffn_norm(h))
-
-                next_attention = self.layers[i+1].attention if i+1 < self.n_layers else None
-                if next_attention is not None:
-                    h = h + next_attention.forward(
-                        self.layers[i+1].attention_norm(h), start_pos, freqs_cis, mask
-                    )
         
-        with torch.cuda.stream(self.normal_stream):
-            h = h + self.layers[self.n_layers-1].feed_forward.forward(self.layers[self.n_layers-1].ffn_norm(h))
-
+        torch.cuda.synchronize()
+        
         h = self.norm(h)
         output = self.output(h).float()
         return output
