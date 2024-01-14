@@ -283,12 +283,16 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 mask
             ]).type_as(h)
 
+        x = h
+
         for i, layer in enumerate(self.layers):
 
             with torch.cuda.stream(self.normal_stream):
                 h = h + layer.attention.forward(
                     layer.attention_norm(h), start_pos, freqs_cis, mask
                 )
+                h = layer.ffn_norm(h)
+                x = h.view(-1, h.shape[-1])
             
             torch.cuda.synchronize()
             
@@ -315,9 +319,6 @@ class PreloadMoETorchTransformer(TorchTransformer):
                                 else:
                                     gpu_expert = next_feedforward.loaded_expert.index(i)
                     else: # Decode
-                        x = layer.ffn_norm(h)
-                        x = x.view(-1, x.shape[-1])
-
                         if next_feedforward.gate_softmax:
                             scores = next_feedforward.gate(x).softmax(dim=-1)
                         else:
@@ -347,7 +348,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
             with torch.cuda.stream(self.normal_stream):
                 print("normal stream start time", time.time())
-                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+                h = h + layer.feed_forward.forward(h)
         
         h = self.norm(h)
         output = self.output(h).float()
