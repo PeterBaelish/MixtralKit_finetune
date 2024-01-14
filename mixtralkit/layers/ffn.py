@@ -7,7 +7,7 @@ from torch import nn
 from typing import Optional, Tuple
 from hqq.core.quantize import *
 
-class TorchFFN_GPU_HQQ(nn.Module):
+class TorchFFN_HQQ(nn.Module):
     def __init__(
         self,
         dim: int,
@@ -30,8 +30,6 @@ class TorchFFN_GPU_HQQ(nn.Module):
         """
         super().__init__()
 
-        quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
-
         device = torch.device('cpu')
         self.w1 = nn.Linear(
             dim, hidden_dim, bias=False
@@ -42,10 +40,6 @@ class TorchFFN_GPU_HQQ(nn.Module):
         self.w3 = nn.Linear(
             dim, hidden_dim, bias=False
         ).to(device)
-
-        self.w1 = HQQLinear(self.w1, quant_config, del_orig=True).cuda()
-        self.w2 = HQQLinear(self.w2, quant_config, del_orig=True).cuda()
-        self.w3 = HQQLinear(self.w3, quant_config, del_orig=True).cuda()
 
     def forward(self, x):
         device = x.device

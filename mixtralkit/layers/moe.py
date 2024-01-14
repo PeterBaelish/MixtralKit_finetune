@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import nn
 from .utils import ModelArgs
 from .attention import TorchAttention, FairScaleAttention
-from .ffn import TorchFFN_GPU_HQQ, TorchFFN, FairScaleFFN
+from .ffn import TorchFFN_HQQ, TorchFFN, FairScaleFFN
 from .transformer import TorchTransformerBlock, TorchTransformer, FairScaleTransformer
 from .norm import RMSNorm
 from .position_embeding import precompute_freqs_cis
@@ -107,8 +107,9 @@ class SingleGPUMoETorchFFN(nn.Module):
             TorchFFN_GPU(**kwargs) for i in range(self.num_expert_cache)]
         )
         '''
+        #TODO: We always have noneType here, don't know why
         self.experts_gpu = nn.ModuleList([
-            TorchFFN_GPU_HQQ(**kwargs) for i in range(self.num_expert_cache)]
+            TorchFFN_HQQ(**kwargs) for i in range(self.num_expert_cache)]
         )
         
         
