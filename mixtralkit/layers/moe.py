@@ -102,12 +102,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         print("Softmax for Gate:{}".format(str(gate_softmax)))
 
         # TODO: this should init on CPU, and load to GPU after quant
-        '''
-        self.experts_gpu = nn.ModuleList([
-            TorchFFN_GPU(**kwargs) for i in range(self.num_expert_cache)]
-        )
-        '''
-        #TODO: We always have noneType here, don't know why
+        #       We always have noneType here, don't know why
         self.experts_gpu = nn.ModuleList([
             TorchFFN_HQQ(**kwargs) for i in range(self.num_expert_cache)]
         )
@@ -163,7 +158,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         
         end_time = time.time()
         elapsed_time = (end_time - start_time) * 1000
-        print(f"expert meta copy time: {elapsed_time} ms")
+        # print(f"expert meta copy time: {elapsed_time} ms")
 
     def forward(self, x):
         orig_shape = x.shape
@@ -205,7 +200,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                 else:
                     gpu_expert = self.loaded_expert.index(i)
 
-                # print(self.expert_gpu_w1.meta)
+                print("copy expert ID:", i)
                 # memory_stats = torch.cuda.memory_stats()
                 # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
@@ -214,7 +209,7 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
-                print(f"expert compute time: {elapsed_time} ms")
+                # print(f"expert compute time: {elapsed_time} ms")
         
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
@@ -297,7 +292,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
             
             if self.preload_stream is not None:
                 self.preload_stream.synchronize()
-            
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             with torch.cuda.stream(self.preload_stream):
                 if next_feedforward is not None:
                     gpu_expert = 0
