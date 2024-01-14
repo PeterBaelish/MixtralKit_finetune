@@ -197,10 +197,12 @@ class SingleGPUMoETorchFFN(nn.Module):
                         #TODO: LRU cache
                     self.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
                     self.loaded_expert[gpu_expert] = i
+                    print("Cache miss. copy expert ID:", i)
                 else:
                     gpu_expert = self.loaded_expert.index(i)
+                    print("Cache hit. hit expert ID:", i)
 
-                print("copy expert ID:", i)
+                
                 # memory_stats = torch.cuda.memory_stats()
                 # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
