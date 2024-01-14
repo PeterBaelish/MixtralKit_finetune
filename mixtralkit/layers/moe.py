@@ -246,6 +246,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
             self.layers.append(MoETorchTransformerBlock(layer_id, params))
         
         self.preload_stream = torch.cuda.Stream()
+        self.normal_stream = torch.cuda.Stream()
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
@@ -284,18 +285,17 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
         for i, layer in enumerate(self.layers):
 
-            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+            with torch.cuda.stream(self.normal_stream):
+                h = h + layer.attention.forward(
+                    layer.attention_norm(h), start_pos, freqs_cis, mask
+                )
             
-            h = h + layer.attention.forward(
-                layer.attention_norm(h), start_pos, freqs_cis, mask
-            )
-            
-            if self.preload_stream is not None:
-                self.preload_stream.synchronize()
+            torch.cuda.synchronize()
             
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
             with torch.cuda.stream(self.preload_stream):
+                next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
                 if next_feedforward is not None:
                     gpu_expert = 0
 
@@ -345,8 +345,9 @@ class PreloadMoETorchTransformer(TorchTransformer):
                                     gpu_expert = next_feedforward.loaded_expert.index(i)
                 print("preload stream end time:", time.time())
 
-            print("normal stream start time", time.time())
-            h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+            with torch.cuda.stream(self.normal_stream):
+                print("normal stream start time", time.time())
+                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
         
         h = self.norm(h)
         output = self.output(h).float()
