@@ -290,6 +290,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
         for i, layer in enumerate(self.layers):
 
+            torch.cuda.synchronize()
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
             with torch.cuda.stream(self.preload_stream):
@@ -351,8 +352,6 @@ class PreloadMoETorchTransformer(TorchTransformer):
                     h = h + next_attention.forward(
                         self.layers[i+1].attention_norm(h), start_pos, freqs_cis, mask
                     )
-            
-            torch.cuda.synchronize()
         
         with torch.cuda.stream(self.normal_stream):
             h = h + self.layers[self.n_layers-1].feed_forward.forward(self.layers[self.n_layers-1].ffn_norm(h))
