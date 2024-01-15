@@ -381,7 +381,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
         #TODO: Pytorch stream CANNOT parallel!! We need replace with C++ pybind11
-        self.lib = ctypes.CDLL('~/workspace/MixtralKit/mixtralkit/layers/stream_manage.so')
+        self.lib = ctypes.CDLL('/workspace/MixtralKit/mixtralkit/layers/stream_manage.so')
         self.lib.createStream.restype = ctypes.c_void_p
         self.stream = self.lib.createStream()
 
