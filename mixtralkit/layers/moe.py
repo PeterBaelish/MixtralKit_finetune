@@ -7,6 +7,7 @@ import time
 import threading
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
+import ctypes
 
 import torch
 import torch.nn.functional as F
@@ -87,7 +88,7 @@ class QuantMoETorchFFN(nn.Module):
     ):
         super().__init__()
         self.experts = nn.ModuleList([
-            TorchFFN(**kwargs) for i in range(num_experts)]
+            TorchFFN_HQQ(**kwargs) for i in range(num_experts)]
         )
         self.gate = nn.Linear(
             kwargs["dim"], num_experts, bias=False)
@@ -117,7 +118,7 @@ class QuantMoETorchFFN(nn.Module):
         
         print("Selected experts", expert_indices)
 
-        for i, expert in enumerate(self.experts_gpu):
+        for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
             if mask.any():
 
@@ -163,6 +164,18 @@ class SingleGPUMoETorchFFN(nn.Module):
         
     def copy_to_gpu(self, cpu_chunk, gpu_chunk):
         gpu_chunk.copy_(cpu_chunk)
+    
+    def copy_to_gpu_on_stream(self, cpu_chunk, gpu_chunk, stream, lib):
+        rows = cpu_chunk.shape[0]
+        cols = cpu_chunk.shape[1]
+
+        src_cpu_memory_address = cpu_chunk.data_ptr()
+        dst_gpu_memory_address = gpu_chunk.data_ptr()
+        lib.copy2DTensor(ctypes.c_void_p(dst_gpu_memory_address),
+                 ctypes.c_void_p(src_cpu_memory_address),
+                 ctypes.c_int(rows),
+                 ctypes.c_int(cols),
+                 stream)
 
     def multi_threaded_cpu_to_gpu_transfer(self, gpu_tensor, cpu_tensor, num_threads, dim):
 
@@ -181,6 +194,24 @@ class SingleGPUMoETorchFFN(nn.Module):
         # Joining threads
         for thread in threads:
             thread.join()
+    
+    def multi_threaded_cpu_to_gpu_transfer_on_stream(self, gpu_tensor, cpu_tensor, num_threads, dim, stream, lib):
+
+        cpu_chunks = torch.chunk(cpu_tensor, num_threads, dim=dim)
+        gpu_chunks = torch.chunk(gpu_tensor, num_threads, dim=dim)
+
+        threads = []
+        for cpu_chunk, gpu_chunk in zip(cpu_chunks, gpu_chunks):
+            thread = threading.Thread(target=self.copy_to_gpu_on_stream, args=(cpu_chunk, gpu_chunk, stream, lib))
+            threads.append(thread)
+
+        # Starting threads
+        for thread in threads:
+            thread.start()
+
+        # Joining threads
+        for thread in threads:
+            thread.join()
 
     def load_expert_cpu_to_gpu(self, expert, gpu_expert, num_threads):
         start_time = time.time()
@@ -188,6 +219,37 @@ class SingleGPUMoETorchFFN(nn.Module):
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
+
+        end_time = time.time()
+        elapsed_time = (end_time - start_time) * 1000
+        print(f"expert weight copy time: {elapsed_time} ms")
+
+        start_time = time.time()
+        
+        #copy meta
+        self.experts_gpu[gpu_expert].w1.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w1.meta.items()
+        }
+        self.experts_gpu[gpu_expert].w2.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w2.meta.items()
+        }
+        self.experts_gpu[gpu_expert].w3.meta = {
+            key: value.to('cuda') if torch.is_tensor(value) else value
+            for key, value in expert.w3.meta.items()
+        }
+        
+        end_time = time.time()
+        elapsed_time = (end_time - start_time) * 1000
+        # print(f"expert meta copy time: {elapsed_time} ms")
+
+    def load_expert_cpu_to_gpu_on_stream(self, expert, gpu_expert, num_threads, stream, lib):
+        start_time = time.time()
+
+        self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w1.W_q.data, expert.w1.W_q.data, num_threads, 0, stream, lib)
+        self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w2.W_q.data, expert.w2.W_q.data, num_threads, 0, stream, lib)
+        self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w3.W_q.data, expert.w3.W_q.data, num_threads, 0, stream, lib)
 
         end_time = time.time()
         elapsed_time = (end_time - start_time) * 1000
@@ -318,8 +380,10 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
-        self.preload_stream = torch.cuda.Stream()
-        self.normal_stream = torch.cuda.Stream()
+        #TODO: Pytorch stream CANNOT parallel!! We need replace with C++ pybind11
+        self.lib = ctypes.CDLL('./stream_manage.so')
+        self.lib.createStream.restype = ctypes.c_void_p
+        self.stream = self.lib.createStream()
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
@@ -356,71 +420,67 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 mask
             ]).type_as(h)
 
+        x = h
+
         for i, layer in enumerate(self.layers):
 
-            with torch.cuda.stream(self.normal_stream):
-                h = h + layer.attention.forward(
-                    layer.attention_norm(h), start_pos, freqs_cis, mask
-                )
-                print("normal stream end time", time.time())
-                        
-            torch.cuda.synchronize()
+            h = h + layer.attention.forward(
+                layer.attention_norm(h), start_pos, freqs_cis, mask
+            )
+            
+            self.lib.synchronizeStream(self.stream)
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-            with torch.cuda.stream(self.preload_stream):
-                print("preload stream start time", time.time())
-                next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
-                if next_feedforward is not None:
-                    gpu_expert = 0
+            x = h
+            h = h + layer.feed_forward.forward(layer.ffn_norm(h))
 
-                    if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
-                        flat_expert_indices = torch.tensor([0, 1])
-                        for i, expert in enumerate(next_feedforward.experts):
-                            expert_mask = (flat_expert_indices == i)
-                            if expert_mask.any():
-                                num_threads = 4
-                                if i not in next_feedforward.loaded_expert:
-                                    if -1 in next_feedforward.loaded_expert:
-                                        gpu_expert = next_feedforward.loaded_expert.index(-1)
-                                    else:
-                                        gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
-                                    next_feedforward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
-                                    next_feedforward.loaded_expert[gpu_expert] = i
+            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+            if next_feedforward is not None:
+                gpu_expert = 0
+
+                if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
+                    flat_expert_indices = torch.tensor([0, 1])
+                    for i, expert in enumerate(next_feedforward.experts):
+                        expert_mask = (flat_expert_indices == i)
+                        if expert_mask.any():
+                            num_threads = 4
+                            if i not in next_feedforward.loaded_expert:
+                                if -1 in next_feedforward.loaded_expert:
+                                    gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
-                                    gpu_expert = next_feedforward.loaded_expert.index(i)
-                    else: # Decode
-                        x = self.layers[i+1].ffn_norm(h)
-                        x = x.view(-1, x.shape[-1])
-                        if next_feedforward.gate_softmax:
-                            scores = next_feedforward.gate(x).softmax(dim=-1)
-                        else:
-                            scores = next_feedforward.gate(x)
+                                    gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
+                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
+                                next_feedforward.loaded_expert[gpu_expert] = i
+                            else:
+                                gpu_expert = next_feedforward.loaded_expert.index(i)
+                else: # Decode
+                    x = self.layers[i+1].ffn_norm(x)
+                    x = x.view(-1, x.shape[-1])
+                    if next_feedforward.gate_softmax:
+                        scores = next_feedforward.gate(x).softmax(dim=-1)
+                    else:
+                        scores = next_feedforward.gate(x)
 
-                        expert_weights, expert_indices = torch.topk(
-                            scores, next_feedforward.num_experts_per_tok, dim=-1)
-                        
-                        flat_expert_indices = expert_indices.view(-1)
+                    expert_weights, expert_indices = torch.topk(
+                        scores, next_feedforward.num_experts_per_tok, dim=-1)
+                    
+                    flat_expert_indices = expert_indices.view(-1)
 
-                        print("Predict experts", expert_indices)
-                        for i, expert in enumerate(next_feedforward.experts):
-                            expert_mask = (flat_expert_indices == i)
-                            if expert_mask.any():
-                                num_threads = 4
-                                if i not in next_feedforward.loaded_expert:
-                                    if -1 in next_feedforward.loaded_expert:
-                                        gpu_expert = next_feedforward.loaded_expert.index(-1)
-                                    else:
-                                        gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
-                                        #TODO: LRU cache
-                                    next_feedforward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
-                                    next_feedforward.loaded_expert[gpu_expert] = i
+                    print("Predict experts", expert_indices)
+                    for i, expert in enumerate(next_feedforward.experts):
+                        expert_mask = (flat_expert_indices == i)
+                        if expert_mask.any():
+                            num_threads = 4
+                            if i not in next_feedforward.loaded_expert:
+                                if -1 in next_feedforward.loaded_expert:
+                                    gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
-                                    gpu_expert = next_feedforward.loaded_expert.index(i)
-                print("preload stream end time:", time.time())
-
-            with torch.cuda.stream(self.normal_stream):
-                print("normal stream start time", time.time())
-                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+                                    gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
+                                    #TODO: LRU cache
+                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
+                                next_feedforward.loaded_expert[gpu_expert] = i
+                            else:
+                                gpu_expert = next_feedforward.loaded_expert.index(i)
         
         torch.cuda.synchronize()
         
