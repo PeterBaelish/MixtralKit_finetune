@@ -171,7 +171,7 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         src_cpu_memory_address = cpu_chunk.data_ptr()
         dst_gpu_memory_address = gpu_chunk.data_ptr()
-        lib.copy2DTensor(ctypes.c_void_p(dst_gpu_memory_address),
+        lib.copy2DTensorCpuToGpuOnStream(ctypes.c_void_p(dst_gpu_memory_address),
                  ctypes.c_void_p(src_cpu_memory_address),
                  ctypes.c_int(rows),
                  ctypes.c_int(cols),
@@ -381,7 +381,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
         #TODO: Pytorch stream CANNOT parallel!! We need replace with C++ pybind11
-        self.lib = ctypes.CDLL('./stream_manage.so')
+        self.lib = ctypes.CDLL('~/workspace/MixtralKit/mixtralkit/layers/stream_manage.so')
         self.lib.createStream.restype = ctypes.c_void_p
         self.stream = self.lib.createStream()
 
