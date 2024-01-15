@@ -76,6 +76,61 @@ class MoETorchFFN(nn.Module):
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
 
+class QuantMoETorchFFN(nn.Module):
+    def __init__(
+        self,
+        num_experts: int,
+        num_experts_per_tok: int,
+        num_shards: int,
+        gate_softmax: bool = False,
+        **kwargs,
+    ):
+        super().__init__()
+        self.experts = nn.ModuleList([
+            TorchFFN(**kwargs) for i in range(num_experts)]
+        )
+        self.gate = nn.Linear(
+            kwargs["dim"], num_experts, bias=False)
+        
+        self.num_experts_per_tok = num_experts_per_tok
+        self.gate_softmax = gate_softmax
+        print("Softmax for Gate:{}".format(str(gate_softmax)))
+
+    def forward(self, x):
+        orig_shape = x.shape
+        x = x.view(-1, x.shape[-1])
+        device = x.device
+
+        if self.gate_softmax:
+            scores = self.gate(x).softmax(dim=-1)
+        else:
+            scores = self.gate(x)
+
+        expert_weights, expert_indices = torch.topk(
+            scores, self.num_experts_per_tok, dim=-1)
+        expert_weights = expert_weights.softmax(dim=-1)
+
+        flat_expert_indices = expert_indices.view(-1)
+
+        x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
+        y = torch.empty_like(x)
+        
+        print("Selected experts", expert_indices)
+
+        for i, expert in enumerate(self.experts_gpu):
+            mask = (flat_expert_indices == i)
+            if mask.any():
+
+                start_time = time.time()
+                y[mask] = expert(x[mask])
+
+                end_time = time.time()
+                elapsed_time = (end_time - start_time) * 1000
+                print(f"expert compute time: {elapsed_time} ms")
+        
+        y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
+        return y.view(*orig_shape)
+
 class SingleGPUMoETorchFFN(nn.Module):
     def __init__(
         self,
@@ -220,7 +275,6 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
         
         self.attention = TorchAttention(args)
 
-        """
         assert args.moe["num_experts"] % args.num_gpus == 0, "num_experts must be divisible by num_gpus"
         self.feed_forward = MoETorchFFN(
             dim=args.dim,
@@ -228,7 +282,26 @@ class MoETorchTransformerBlock(TorchTransformerBlock):
             num_shards=args.moe["num_experts"] // args.num_gpus,
             **args.moe,
         )
-        """
+
+class QuantMoETorchTransformerBlock(TorchTransformerBlock):
+    def __init__(self, layer_id: int, args: ModelArgs):
+        super().__init__(layer_id, args)
+        
+        self.attention = TorchAttention(args)
+
+        assert args.moe["num_experts"] % args.num_gpus == 0, "num_experts must be divisible by num_gpus"
+        self.feed_forward = QuantMoETorchFFN(
+            dim=args.dim,
+            hidden_dim=args.hidden_dim,
+            num_shards=args.moe["num_experts"] // args.num_gpus,
+            **args.moe,
+        )
+
+class SingleGPUMoETorchTransformerBlock(TorchTransformerBlock):
+    def __init__(self, layer_id: int, args: ModelArgs):
+        super().__init__(layer_id, args)
+        
+        self.attention = TorchAttention(args)
 
         self.feed_forward = SingleGPUMoETorchFFN(
             dim=args.dim,
@@ -243,7 +316,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(MoETorchTransformerBlock(layer_id, params))
+            self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
         self.preload_stream = torch.cuda.Stream()
         self.normal_stream = torch.cuda.Stream()
@@ -355,6 +428,98 @@ class PreloadMoETorchTransformer(TorchTransformer):
         output = self.output(h).float()
         return output
 
+class QuantMoETorchTransformer(TorchTransformer):
+    def __init__(self, params: ModelArgs):
+        super().__init__(params)
+
+        self.layers = torch.nn.ModuleList()
+        for layer_id in range(params.n_layers):
+            self.layers.append(QuantMoETorchTransformerBlock(layer_id, params))
+        
+        self.preload_stream = torch.cuda.Stream()
+        self.normal_stream = torch.cuda.Stream()
+
+    @torch.inference_mode()
+    def forward(self, tokens: torch.Tensor, start_pos: int):
+        """
+        Perform a forward pass through the Transformer model.
+
+        Args:
+            tokens (torch.Tensor): Input token indices.
+            start_pos (int): Starting position for attention caching.
+
+        Returns:
+            torch.Tensor: Output logits after applying the Transformer model.
+
+        """
+        _bsz, seqlen = tokens.shape
+        h = self.tok_embeddings(tokens)
+        self.freqs_cis = self.freqs_cis.to(h.device)
+        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+
+        mask = None
+        if seqlen > 1:
+            mask = torch.full(
+                (seqlen, seqlen), float("-inf"), device=tokens.device
+            )
+
+            mask = torch.triu(mask, diagonal=1)
+
+            # When performing key-value caching, we compute the attention scores
+            # only for the new sequence. Thus, the matrix of scores is of size
+            # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
+            # j > cache_len + i, since row i corresponds to token cache_len + i.
+            mask = torch.hstack([
+                torch.zeros((seqlen, start_pos), device=tokens.device),
+                mask
+            ]).type_as(h)
+
+        for i, layer in enumerate(self.layers):
+
+            with torch.cuda.stream(self.normal_stream):
+                h = h + layer.attention.forward(
+                    layer.attention_norm(h), start_pos, freqs_cis, mask
+                )
+                print("normal stream end time", time.time())
+                        
+            torch.cuda.synchronize()
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+            with torch.cuda.stream(self.preload_stream):
+                print("preload stream start time", time.time())
+                next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+                if next_feedforward is not None:
+                    gpu_expert = 0
+
+                    if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
+                        flat_expert_indices = torch.tensor([0, 1])
+
+                    else: # Decode
+                        x = self.layers[i+1].ffn_norm(h)
+                        x = x.view(-1, x.shape[-1])
+                        if next_feedforward.gate_softmax:
+                            scores = next_feedforward.gate(x).softmax(dim=-1)
+                        else:
+                            scores = next_feedforward.gate(x)
+
+                        expert_weights, expert_indices = torch.topk(
+                            scores, next_feedforward.num_experts_per_tok, dim=-1)
+                        
+                        flat_expert_indices = expert_indices.view(-1)
+
+                        print("Predict experts", expert_indices)
+
+                print("preload stream end time:", time.time())
+
+            with torch.cuda.stream(self.normal_stream):
+                print("normal stream start time", time.time())
+                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+        
+        torch.cuda.synchronize()
+        
+        h = self.norm(h)
+        output = self.output(h).float()
+        return output
 
 class MoETorchTransformer(TorchTransformer):
     def __init__(self, params: ModelArgs):
