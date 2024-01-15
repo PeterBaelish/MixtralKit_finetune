@@ -289,11 +289,13 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 h = h + layer.attention.forward(
                     layer.attention_norm(h), start_pos, freqs_cis, mask
                 )
+                print("normal stream end time", time.time())
                         
             torch.cuda.synchronize()
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
             with torch.cuda.stream(self.preload_stream):
+                print("preload stream start time", time.time())
                 next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
                 if next_feedforward is not None:
                     gpu_expert = 0
