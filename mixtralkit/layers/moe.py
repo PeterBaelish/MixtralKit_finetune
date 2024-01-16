@@ -117,6 +117,17 @@ class QuantMoETorchFFN(nn.Module):
         y = torch.empty_like(x)
         
         print("Selected experts", expert_indices)
+        
+        output_data = {
+            "expert_indices": expert_indices.tolist()
+            # "scores": scores.tolist()
+        }
+
+        if len(expert_indices.tolist()) == 1:
+            with open("/workspace/MixtralKit/output_data.json", "a") as file:
+                json.dump(output_data, file)
+                file.write("\n")
+        
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
@@ -127,7 +138,7 @@ class QuantMoETorchFFN(nn.Module):
 
                 end_time = time.time()
                 elapsed_time = (end_time - start_time) * 1000
-                print(f"expert compute time: {elapsed_time} ms")
+                # print(f"expert compute time: {elapsed_time} ms")
         
         y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
         return y.view(*orig_shape)
@@ -514,9 +525,6 @@ class QuantMoETorchTransformer(TorchTransformer):
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
             self.layers.append(QuantMoETorchTransformerBlock(layer_id, params))
-        
-        self.preload_stream = torch.cuda.Stream()
-        self.normal_stream = torch.cuda.Stream()
 
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
@@ -555,46 +563,41 @@ class QuantMoETorchTransformer(TorchTransformer):
 
         for i, layer in enumerate(self.layers):
 
-            with torch.cuda.stream(self.normal_stream):
-                h = h + layer.attention.forward(
-                    layer.attention_norm(h), start_pos, freqs_cis, mask
-                )
-                print("normal stream end time", time.time())
-                        
-            torch.cuda.synchronize()
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            h = h + layer.attention.forward(
+                layer.attention_norm(h), start_pos, freqs_cis, mask
+            )
 
-            with torch.cuda.stream(self.preload_stream):
-                print("preload stream start time", time.time())
-                next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
-                if next_feedforward is not None:
-                    gpu_expert = 0
+            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+            if next_feedforward is not None:
+                gpu_expert = 0
 
-                    if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
-                        flat_expert_indices = torch.tensor([0, 1])
+                if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
+                    flat_expert_indices = torch.tensor([0, 1])
 
-                    else: # Decode
-                        x = self.layers[i+1].ffn_norm(h)
-                        x = x.view(-1, x.shape[-1])
-                        if next_feedforward.gate_softmax:
-                            scores = next_feedforward.gate(x).softmax(dim=-1)
-                        else:
-                            scores = next_feedforward.gate(x)
+                else: # Decode
+                    x = self.layers[i+1].ffn_norm(h)
+                    x = x.view(-1, x.shape[-1])
+                    if next_feedforward.gate_softmax:
+                        scores = next_feedforward.gate(x).softmax(dim=-1)
+                    else:
+                        scores = next_feedforward.gate(x)
 
-                        expert_weights, expert_indices = torch.topk(
-                            scores, next_feedforward.num_experts_per_tok, dim=-1)
-                        
-                        flat_expert_indices = expert_indices.view(-1)
+                    expert_weights, expert_indices = torch.topk(
+                        scores, next_feedforward.num_experts_per_tok, dim=-1)
+                    
+                    flat_expert_indices = expert_indices.view(-1)
 
-                        print("Predict experts", expert_indices)
+                    print("Predict experts", expert_indices)
 
-                print("preload stream end time:", time.time())
+                    output_data = {
+                        "expert_indices": expert_indices.tolist()
+                    }
 
-            with torch.cuda.stream(self.normal_stream):
-                print("normal stream start time", time.time())
-                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
-        
-        torch.cuda.synchronize()
+                    with open("/workspace/MixtralKit/output_data.json", "a") as file:
+                        json.dump(output_data, file)
+                        file.write("\n")
+
+            h = h + layer.feed_forward.forward(layer.ffn_norm(h))
         
         h = self.norm(h)
         output = self.output(h).float()

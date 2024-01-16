@@ -28,111 +28,6 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-def mmlu_eval(generator):
-
-    max_gen_len = 128
-
-    mmlu_path = "/workspace/mmlu"
-    mmlu_files = os.listdir(mmlu_path)
-
-    for csvfile in mmlu_files:
-
-        task = csvfile.rstrip('.csv')
-        file_path = mmlu_path + '/' + csvfile
-        df = pd.read_csv(file_path, header=None, usecols=[0])
-
-        if os.path.exists("/workspace/MixtralKit/output_data.json"):
-            os.remove("/workspace/MixtralKit/output_data.json")
-
-        layer_stats = {layer: defaultdict(int) for layer in range(1, 33)}
-        prompt_num = 100
-
-        print(f"Task {task} begins")
-
-        for prompts in df[0]:
-            '''
-            prompts = [
-                "Chaos isn't a pit, Chaos is a ladder.",
-                ]
-            '''
-            prompts = [str(prompts)]
-            temperature = 1.0 # for greedy decoding
-            top_p = 0.9
-
-            
-            results = generator.text_completion(
-                prompts,
-                max_gen_len=max_gen_len,
-                temperature=temperature,
-                top_p=top_p,
-            )
-            for prompt, result in zip(prompts, results):
-                print("="*30 + "Example START" + "="*30 + '\n')
-                print("[Prompt]:\n{}\n".format(prompt))
-                print("[Response]:\n{}\n".format(result['generation']))
-                print("="*30 + "Example END" + "="*30 + '\n')
-            
-            with open("/workspace/MixtralKit/output_data.json", "r") as file:
-                for i, line in enumerate(file):
-                    data = json.loads(line)
-                    expert_indices = data['expert_indices']
-
-                    for pair in expert_indices:
-                        for number in pair:
-                            layer_stats[(i % 32) + 1][number] += 1
-
-            for layer in range(1, 33):
-                print(f"Layer {layer}: {dict(layer_stats[layer])}")
-
-            os.remove("/workspace/MixtralKit/output_data.json")
-
-            prompt_num = prompt_num - 1
-            if prompt_num < 0:
-                break
-
-        layer_stats_json = {layer: dict(layer_stats[layer]) for layer in layer_stats}
-
-        layer_stats_output_file = '/workspace/mmlu_result/' + task + '.json'
-        with open(layer_stats_output_file,'a') as outfile:
-            json.dump(layer_stats_json, outfile)
-        
-        print(f"Task {task} is  done")
-
-def patch_linear_fct(linear_layer, quant_config):
-	return HQQLinear(linear_layer, quant_config)
-
-def main(generator):
-
-    max_gen_len = 128
-
-    prompts = [
-        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
-        ]
-    
-    temperature = 1.0 # for greedy decoding
-    top_p = 0.9
-
-    start_time = time.time()
-
-    results = generator.text_completion(
-        prompts,
-        max_gen_len=max_gen_len,
-        temperature=temperature,
-        top_p=top_p,
-    )
-
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    formatted_time = "{:.3f}".format(elapsed_time)
-    print(f"generation time: {formatted_time} s")
-
-    for prompt, result in zip(prompts, results):
-        print("="*30 + "Example START" + "="*30 + '\n')
-        print("[Prompt]:\n{}\n".format(prompt))
-        print("[Response]:\n{}\n".format(result['generation']))
-        print("="*30 + "Example END" + "="*30 + '\n')
-
 def init(args):
     max_batch_size = 1
     max_seq_len = 1024
@@ -145,6 +40,12 @@ def init(args):
         num_gpus=args.num_gpus,
     )
 
+    return generator
+
+def patch_linear_fct(linear_layer, quant_config):
+	return HQQLinear(linear_layer, quant_config)
+
+def quant(generator):
     #HQQ - 4bit - No stats compression
     
     patch_params   = {}
@@ -182,7 +83,134 @@ def init(args):
 
     return generator
 
+def mmlu_eval(generator):
+
+    max_gen_len = 128
+
+    mmlu_path = "/workspace/mmlu"
+    mmlu_files = os.listdir(mmlu_path)
+
+    task_num = 2
+
+    for csvfile in mmlu_files:
+
+        task = csvfile.rstrip('.csv')
+        file_path = mmlu_path + '/' + csvfile
+        df = pd.read_csv(file_path, header=None, usecols=[0])
+
+        if os.path.exists("/workspace/MixtralKit/output_data.json"):
+            os.remove("/workspace/MixtralKit/output_data.json")
+
+        layer_predict_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        layer_hit_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        layer_actual_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        prompt_num = 100
+
+        print(f"Task {task} begins")
+
+        for prompts in df[0]:
+            '''
+            prompts = [
+                "Chaos isn't a pit, Chaos is a ladder.",
+                ]
+            '''
+            prompts = [str(prompts)]
+            temperature = 1.0 # for greedy decoding
+            top_p = 0.9
+
+            
+            results = generator.text_completion(
+                prompts,
+                max_gen_len=max_gen_len,
+                temperature=temperature,
+                top_p=top_p,
+            )
+            for prompt, result in zip(prompts, results):
+                print("="*30 + "Example START" + "="*30 + '\n')
+                print("[Prompt]:\n{}\n".format(prompt))
+                print("[Response]:\n{}\n".format(result['generation']))
+                print("="*30 + "Example END" + "="*30 + '\n')
+            
+            with open("/workspace/MixtralKit/output_data.json", "r") as file:
+                predict = []
+                for i, line in enumerate(file):
+                    data = json.loads(line)
+                    expert_indices = data['expert_indices']
+
+                    if i % 63 > 0:
+                        for pair in expert_indices:
+                            if i % 2 == 0: # actual
+                                for number in pair:
+                                    layer_actual_stats[((i % 63)+3) >> 1][number] += 1
+                                    if number in predict:
+                                        layer_hit_stats[((i % 63)+3) >> 1][number] += 1
+                            else: # predict
+                                predict = pair
+                                for number in pair:
+                                    layer_predict_stats[((i % 63)+3) >> 1][number] += 1    
+
+            for layer in range(2, 33):
+                print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
+
+            os.remove("/workspace/MixtralKit/output_data.json")
+
+            prompt_num = prompt_num - 1
+            if prompt_num < 0:
+                break
+
+        layer_predict_stats_json = {layer: dict(layer_predict_stats[layer]) for layer in layer_predict_stats}
+        layer_hit_stats_json = {layer: dict(layer_hit_stats[layer]) for layer in layer_hit_stats}
+        layer_actual_stats_json = {layer: dict(layer_actual_stats[layer]) for layer in layer_actual_stats}
+
+        layer_stats_output_file = '/workspace/mmlu_result_predict/' + task + '.json'
+        with open(layer_stats_output_file,'a') as outfile:
+            json.dump(layer_predict_stats_json, outfile)
+            file.write("\n")
+            json.dump(layer_hit_stats_json, outfile)
+            file.write("\n")
+            json.dump(layer_actual_stats_json, outfile)
+            file.write("\n")
+        
+        print(f"Task {task} is done")
+
+        task_num = task_num - 1
+        if task_num == 0:
+            break
+
+def main(generator):
+
+    max_gen_len = 128
+
+    prompts = [
+        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
+        ]
+    
+    temperature = 1.0 # for greedy decoding
+    top_p = 0.9
+
+    start_time = time.time()
+
+    results = generator.text_completion(
+        prompts,
+        max_gen_len=max_gen_len,
+        temperature=temperature,
+        top_p=top_p,
+    )
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    formatted_time = "{:.3f}".format(elapsed_time)
+    print(f"generation time: {formatted_time} s")
+
+    for prompt, result in zip(prompts, results):
+        print("="*30 + "Example START" + "="*30 + '\n')
+        print("[Prompt]:\n{}\n".format(prompt))
+        print("[Response]:\n{}\n".format(result['generation']))
+        print("="*30 + "Example END" + "="*30 + '\n')
+
+
 if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
+    generator = quant(generator)
     main(generator)
