@@ -382,7 +382,26 @@ class PreloadMoETorchTransformer(TorchTransformer):
         
         #TODO: Pytorch stream CANNOT parallel!! We need replace with C++ pybind11
         self.lib = ctypes.CDLL('/workspace/stream_manage.so')
+
+        self.lib.createStream.argtypes = []
         self.lib.createStream.restype = ctypes.c_void_p
+
+        # copyCpuToGpuOnStream
+        self.lib.copyCpuToGpuOnStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        self.lib.copyCpuToGpuOnStream.restype = None
+
+        # copy2DTensorCpuToGpuOnStream
+        self.lib.copy2DTensorCpuToGpuOnStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+        self.lib.copy2DTensorCpuToGpuOnStream.restype = None
+
+        # synchronizeStream
+        self.lib.synchronizeStream.argtypes = [ctypes.c_void_p]
+        self.lib.synchronizeStream.restype = None
+
+        # destroyStream
+        self.lib.destroyStream.argtypes = [ctypes.c_void_p]
+        self.lib.destroyStream.restype = None
+
         self.stream = self.lib.createStream()
 
     @torch.inference_mode()
@@ -421,13 +440,13 @@ class PreloadMoETorchTransformer(TorchTransformer):
             ]).type_as(h)
 
         x = h
-
+        print("token begin")
         for i, layer in enumerate(self.layers):
 
             h = h + layer.attention.forward(
                 layer.attention_norm(h), start_pos, freqs_cis, mask
             )
-            
+            print("before stream sync")
             self.lib.synchronizeStream(self.stream)
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
