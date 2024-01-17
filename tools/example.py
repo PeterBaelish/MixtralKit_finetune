@@ -131,28 +131,29 @@ def mmlu_eval(generator):
                 print("[Response]:\n{}\n".format(result['generation']))
                 print("="*30 + "Example END" + "="*30 + '\n')
             
-            with open("/workspace/MixtralKit/output_data.json", "r") as file:
-                predict = []
-                for i, line in enumerate(file):
-                    data = json.loads(line)
-                    expert_indices = data['expert_indices']
+            if os.path.exists("/workspace/MixtralKit/output_data.json"):
+                with open("/workspace/MixtralKit/output_data.json", "r") as file:
+                    predict = []
+                    for i, line in enumerate(file):
+                        data = json.loads(line)
+                        expert_indices = data['expert_indices']
 
-                    if i % 63 > 0:
-                        for pair in expert_indices:
-                            if i % 2 == 0: # actual
-                                for number in pair:
-                                    layer_actual_stats[((i % 63)+3) >> 1][number] += 1
-                                    if number in predict:
-                                        layer_hit_stats[((i % 63)+3) >> 1][number] += 1
-                            else: # predict
-                                predict = pair
-                                for number in pair:
-                                    layer_predict_stats[((i % 63)+3) >> 1][number] += 1    
+                        if i % 63 > 0:
+                            for pair in expert_indices:
+                                if i % 2 == 0: # actual
+                                    for number in pair:
+                                        layer_actual_stats[((i % 63)+3) >> 1][number] += 1
+                                        if number in predict:
+                                            layer_hit_stats[((i % 63)+3) >> 1][number] += 1
+                                else: # predict
+                                    predict = pair
+                                    for number in pair:
+                                        layer_predict_stats[((i % 63)+3) >> 1][number] += 1    
 
-            for layer in range(2, 33):
-                print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
+                for layer in range(2, 33):
+                    print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
 
-            os.remove("/workspace/MixtralKit/output_data.json")
+                os.remove("/workspace/MixtralKit/output_data.json")
 
             prompt_num = prompt_num - 1
             if prompt_num < 0:
@@ -213,4 +214,5 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    main(generator)
+    # main(generator)
+    mmlu_eval(generator)
