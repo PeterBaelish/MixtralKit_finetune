@@ -138,17 +138,24 @@ def mmlu_eval(generator):
                         data = json.loads(line)
                         expert_indices = data['expert_indices']
 
-                        if i % 63 > 0:
+                        if i % 63 != 1 and i % 63 != 62:
                             for pair in expert_indices:
-                                if i % 2 == 0: # actual
+                                if i % 2 == 1: # actual
                                     for number in pair:
-                                        layer_actual_stats[((i % 63)+3) >> 1][number] += 1
-                                        if number in predict:
-                                            layer_hit_stats[((i % 63)+3) >> 1][number] += 1
+                                        layer_actual_stats[((i % 63) + 1) >> 1][number] += 1
+                                        if number in predict[((i % 63) + 1) >> 1]:
+                                            layer_hit_stats[((i % 63) + 1) >> 1][number] += 1
                                 else: # predict
-                                    predict = pair
+                                    predict[2 + ((i % 63) >> 1)] = pair
                                     for number in pair:
-                                        layer_predict_stats[((i % 63)+3) >> 1][number] += 1    
+                                        layer_predict_stats[2 + ((i % 63) >> 1)][number] += 1
+                        elif i % 63 == 62: # actual layer 32
+                            for pair in expert_indices:
+                                for number in pair:
+                                    layer_actual_stats[((i % 63) + 2) >> 1][number] += 1
+                                    if number in predict[((i % 63) + 2) >> 1]:
+                                        layer_hit_stats[((i % 63) + 2) >> 1][number] += 1
+                            predict = []
 
                 for layer in range(2, 33):
                     print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
@@ -166,11 +173,11 @@ def mmlu_eval(generator):
         layer_stats_output_file = '/workspace/mmlu_result_predict/' + task + '.json'
         with open(layer_stats_output_file,'a') as outfile:
             json.dump(layer_predict_stats_json, outfile)
-            file.write("\n")
+            outfile.write("\n")
             json.dump(layer_hit_stats_json, outfile)
-            file.write("\n")
+            outfile.write("\n")
             json.dump(layer_actual_stats_json, outfile)
-            file.write("\n")
+            outfile.write("\n")
         
         print(f"Task {task} is done")
 
