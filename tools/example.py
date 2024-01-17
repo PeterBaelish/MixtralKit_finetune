@@ -142,7 +142,7 @@ def mmlu_eval(generator):
                             j = i - 32
                             if j % 63 != 1 and j % 63 != 62:
                                 for pair in expert_indices:
-                                    if j % 2 == 1: # actual
+                                    if (j%63) % 2 == 1: # actual
                                         for number in pair:
                                             layer_actual_stats[((j % 63) + 1) >> 1][number] += 1
                                             if number in predict[((j % 63) + 1) >> 1]:
