@@ -15,6 +15,14 @@ extern "C" void copy2DTensorCpuToGpuOnStream(int8_t *dst, const int8_t *src, int
     cudaMemcpyAsync(dst, src, size, cudaMemcpyHostToDevice, stream);
 }
 
+extern "C" void copyCpuToGpuOnStream_float(float *dst, const float *src, int n, cudaStream_t stream) {
+    cudaMemcpyAsync(dst, src, n * sizeof(float), cudaMemcpyHostToDevice, stream);
+}
+
+extern "C" void copy2DTensorCpuToGpuOnStream_float(float *dst, const float *src, int rows, int cols, cudaStream_t stream) {
+    size_t size = rows * cols * sizeof(float);
+    cudaMemcpyAsync(dst, src, size, cudaMemcpyHostToDevice, stream);
+}
 
 extern "C" void synchronizeStream(cudaStream_t stream) {
     cudaStreamSynchronize(stream);

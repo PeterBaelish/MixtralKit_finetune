@@ -117,7 +117,7 @@ class QuantMoETorchFFN(nn.Module):
         y = torch.empty_like(x)
         
         print("Selected experts", expert_indices)
-        
+
         output_data = {
             "expert_indices": expert_indices.tolist()
             # "scores": scores.tolist()
@@ -512,7 +512,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             else:
                                 gpu_expert = next_feedforward.loaded_expert.index(i)
         
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
         
         h = self.norm(h)
         output = self.output(h).float()
