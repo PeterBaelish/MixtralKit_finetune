@@ -1,3 +1,5 @@
+// nvcc -shared -o stream_manage.so stream_manage.cu -L/usr/local/cuda/lib64 -lcudart
+
 extern "C" cudaStream_t createStream() {
     cudaStream_t stream;
     cudaStreamCreate(&stream);

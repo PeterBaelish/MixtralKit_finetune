@@ -138,26 +138,25 @@ def mmlu_eval(generator):
                         data = json.loads(line)
                         expert_indices = data['expert_indices']
 
-                        if i > 31:
-                            j = i - 32
-                            if j % 63 != 1 and j % 63 != 62:
-                                for pair in expert_indices:
-                                    if (j%63) % 2 == 1: # actual
-                                        for number in pair:
-                                            layer_actual_stats[((j % 63) + 1) >> 1][number] += 1
-                                            if number in predict[((j % 63) + 1) >> 1]:
-                                                layer_hit_stats[((j % 63) + 1) >> 1][number] += 1
-                                    else: # predict
-                                        predict[2 + ((j % 63) >> 1)] = pair
-                                        for number in pair:
-                                            layer_predict_stats[2 + ((j % 63) >> 1)][number] += 1
-                            elif j % 63 == 62: # actual layer 32
-                                for pair in expert_indices:
+                        j = i
+                        if j % 63 != 1 and j % 63 != 62:
+                            for pair in expert_indices:
+                                if (j%63) % 2 == 1: # actual
                                     for number in pair:
-                                        layer_actual_stats[((j % 63) + 2) >> 1][number] += 1
-                                        if number in predict[((j % 63) + 2) >> 1]:
-                                            layer_hit_stats[((j % 63) + 2) >> 1][number] += 1
-                                predict = [[] for _ in range(33)]
+                                        layer_actual_stats[((j % 63) + 1) >> 1][number] += 1
+                                        if number in predict[((j % 63) + 1) >> 1]:
+                                            layer_hit_stats[((j % 63) + 1) >> 1][number] += 1
+                                else: # predict
+                                    predict[2 + ((j % 63) >> 1)] = pair
+                                    for number in pair:
+                                        layer_predict_stats[2 + ((j % 63) >> 1)][number] += 1
+                        elif j % 63 == 62: # actual layer 32
+                            for pair in expert_indices:
+                                for number in pair:
+                                    layer_actual_stats[((j % 63) + 2) >> 1][number] += 1
+                                    if number in predict[((j % 63) + 2) >> 1]:
+                                        layer_hit_stats[((j % 63) + 2) >> 1][number] += 1
+                            predict = [[] for _ in range(33)]
 
                 for layer in range(2, 33):
                     print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
@@ -165,7 +164,7 @@ def mmlu_eval(generator):
                 os.remove("/workspace/MixtralKit/output_data.json")
 
             prompt_num = prompt_num - 1
-            if prompt_num < 0:
+            if prompt_num == 0:
                 break
 
         layer_predict_stats_json = {layer: dict(layer_predict_stats[layer]) for layer in layer_predict_stats}
