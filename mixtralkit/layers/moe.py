@@ -416,6 +416,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
         self.stream = self.lib.createStream()
 
+        self.normal_stream = torch.cuda.Stream()
+
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         """
@@ -455,16 +457,25 @@ class PreloadMoETorchTransformer(TorchTransformer):
         print("token begin")
         for i, layer in enumerate(self.layers):
 
-            h = h + layer.attention.forward(
-                layer.attention_norm(h), start_pos, freqs_cis, mask
-            )
-            print("before stream sync")
+            with torch.cuda.stream(self.normal_stream):
+                h = h + layer.attention.forward(
+                    layer.attention_norm(h), start_pos, freqs_cis, mask
+                )
+                print("normal stream end: ", time.time())
+
+            print("preload stream end", time.time())
             self.lib.synchronizeStream(self.stream)
+            self.lib.synchronizeStream(self.normal_stream)
+
             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
             x = h
-            h = h + layer.feed_forward.forward(layer.ffn_norm(h))
 
+            with torch.cuda.stream(self.normal_stream):
+                print("normal stream start: ", time.time())
+                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+
+            print("preload stream start", time.time())
             next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
             if next_feedforward is not None:
                 gpu_expert = 0
@@ -487,10 +498,12 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 else: # Decode
                     x = self.layers[i+1].ffn_norm(x)
                     x = x.view(-1, x.shape[-1])
-                    if next_feedforward.gate_softmax:
-                        scores = next_feedforward.gate(x).softmax(dim=-1)
-                    else:
-                        scores = next_feedforward.gate(x)
+
+                    with torch.cuda.stream(self.stream):
+                        if next_feedforward.gate_softmax:
+                            scores = next_feedforward.gate(x).softmax(dim=-1)
+                        else:
+                            scores = next_feedforward.gate(x)
 
                     expert_weights, expert_indices = torch.topk(
                         scores, next_feedforward.num_experts_per_tok, dim=-1)

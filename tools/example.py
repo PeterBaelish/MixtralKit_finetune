@@ -151,7 +151,7 @@ def mmlu_eval(generator):
                         elif j % 63 == 62: # actual layer 32
                             actual[32] = expert_indices
 
-                seqlen = len(actual[0])
+                seqlen = len(actual[1])
                 # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layerID(1 ~ 32), expert_list([])
                 # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layer_list([i, i+1], 1<=i<=31), expert_list([[],[]])
                 for token_ID in range(seqlen):
@@ -233,5 +233,5 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    # main(generator)
-    mmlu_eval(generator)
+    main(generator)
+    #mmlu_eval(generator)
