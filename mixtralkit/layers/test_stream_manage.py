@@ -36,19 +36,22 @@ lib.synchronizeStream.restype = None
 lib.destroyStream.argtypes = [ctypes.c_void_p]
 lib.destroyStream.restype = None
 
-stream1 = lib.createStream()
+# stream1 = lib.createStream()
+stream1 = torch.cuda.Stream()
 stream2 = lib.createStream()
 
 # Create two tensors
-size = 100
+size = 10000
 a = torch.full((size, size), 3.0, device='cuda')
+c = torch.full((size, size), 1.0, device='cuda')
 b = torch.full((size, size), 2.0, device='cpu')
 b_g = torch.full((size, size), 3.0, device='cuda')
 
 torch.cuda.synchronize()
 
-for _ in range(1000):
-    a = a + 1.0
+with torch.cuda.stream(stream1):
+    for _ in range(10):
+        a = torch.matmul(a, c)
 
 rows = b.shape[0]
 cols = b.shape[1]

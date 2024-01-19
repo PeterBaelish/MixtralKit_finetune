@@ -116,14 +116,14 @@ class QuantMoETorchFFN(nn.Module):
         x = x.repeat_interleave(self.num_experts_per_tok, dim=0)
         y = torch.empty_like(x)
         
-        print("Selected experts", expert_indices)
+        # print("Selected experts", expert_indices)
 
         output_data = {
             "expert_indices": expert_indices.tolist()
             # "scores": scores.tolist()
         }
 
-        if len(expert_indices.tolist()) == 1:
+        if len(expert_indices.tolist()) > 1:
             with open("/workspace/MixtralKit/output_data.json", "a") as file:
                 json.dump(output_data, file)
                 file.write("\n")
@@ -391,7 +391,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
-        #TODO: Pytorch stream CANNOT parallel!! We need replace with C++ pybind11
+        #TODO: Pytorch stream CANNOT parallel!! 
+        #TODO: We need to compute in non-default torch cuda stream, and load expert in custom stream
         self.lib = ctypes.CDLL('/workspace/stream_manage.so')
 
         self.lib.createStream.argtypes = []
@@ -569,12 +570,11 @@ class QuantMoETorchTransformer(TorchTransformer):
 
             next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
             if next_feedforward is not None:
-                gpu_expert = 0
 
-                if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
-                    flat_expert_indices = torch.tensor([0, 1])
+                if start_pos != 0: #Decode
+                    pass
 
-                else: # Decode
+                else: # Prefill
                     x = self.layers[i+1].ffn_norm(h)
                     x = x.view(-1, x.shape[-1])
                     if next_feedforward.gate_softmax:
@@ -587,7 +587,7 @@ class QuantMoETorchTransformer(TorchTransformer):
                     
                     flat_expert_indices = expert_indices.view(-1)
 
-                    print("Predict experts", expert_indices)
+                    # print("Predict experts", expert_indices)
 
                     output_data = {
                         "expert_indices": expert_indices.tolist()

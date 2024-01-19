@@ -85,12 +85,12 @@ def quant(generator):
 
 def mmlu_eval(generator):
 
-    max_gen_len = 128
+    max_gen_len = 1
 
     mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
 
-    task_num = 2
+    task_num = 0
 
     for csvfile in mmlu_files:
 
@@ -101,10 +101,11 @@ def mmlu_eval(generator):
         if os.path.exists("/workspace/MixtralKit/output_data.json"):
             os.remove("/workspace/MixtralKit/output_data.json")
 
-        layer_predict_stats = {layer: defaultdict(int) for layer in range(1, 33)}
-        layer_hit_stats = {layer: defaultdict(int) for layer in range(1, 33)}
-        layer_actual_stats = {layer: defaultdict(int) for layer in range(1, 33)}
-        prompt_num = 100
+        # layer_predict_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        # layer_hit_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+        # layer_actual_stats = {layer: defaultdict(int) for layer in range(1, 33)}
+
+        prompt_num = 0
 
         print(f"Task {task} begins")
 
@@ -132,41 +133,51 @@ def mmlu_eval(generator):
                 print("="*30 + "Example END" + "="*30 + '\n')
             
             if os.path.exists("/workspace/MixtralKit/output_data.json"):
+                
+                predict = [[] for _ in range(33)]
+                actual = [[] for _ in range(33)]
                 with open("/workspace/MixtralKit/output_data.json", "r") as file:
-                    predict = [[] for _ in range(33)]
+                    
                     for i, line in enumerate(file):
                         data = json.loads(line)
                         expert_indices = data['expert_indices']
 
                         j = i
-                        if j % 63 != 1 and j % 63 != 62:
-                            for pair in expert_indices:
-                                if (j%63) % 2 == 1: # actual
-                                    for number in pair:
-                                        layer_actual_stats[((j % 63) + 1) >> 1][number] += 1
-                                        if number in predict[((j % 63) + 1) >> 1]:
-                                            layer_hit_stats[((j % 63) + 1) >> 1][number] += 1
-                                else: # predict
-                                    predict[2 + ((j % 63) >> 1)] = pair
-                                    for number in pair:
-                                        layer_predict_stats[2 + ((j % 63) >> 1)][number] += 1
+                        if j % 63 != 62:
+                            if (j%63) % 2 == 1: # actual
+                                actual[((j % 63) + 1) >> 1] = expert_indices
+                            else: # predict
+                                predict[2 + ((j % 63) >> 1)] = expert_indices
                         elif j % 63 == 62: # actual layer 32
-                            for pair in expert_indices:
-                                for number in pair:
-                                    layer_actual_stats[((j % 63) + 2) >> 1][number] += 1
-                                    if number in predict[((j % 63) + 2) >> 1]:
-                                        layer_hit_stats[((j % 63) + 2) >> 1][number] += 1
-                            predict = [[] for _ in range(33)]
+                            actual[32] = expert_indices
 
-                for layer in range(2, 33):
-                    print(f"Layer {layer}: {dict(layer_predict_stats[layer])}")
+                seqlen = len(actual[0])
+                # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layerID(1 ~ 32), expert_list([])
+                # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layer_list([i, i+1], 1<=i<=31), expert_list([[],[]])
+                for token_ID in range(seqlen):
+                    for layer_ID in range(1,33):
+                        output_str_actual  = str(task_num*64 + prompt_num) + ' ' + '1' + ' ' + str(seqlen) + ' ' + str(token_ID) + ' ' + str(layer_ID) + ' ' + str(actual[layer_ID][token_ID])
+                        predict_next = [-1, -1]
+                        if layer_ID == 32:
+                            pass
+                        else:
+                            predict_next = predict[layer_ID+1][token_ID]
+                        output_str_predict = str(task_num*64 + prompt_num) + ' ' + '1' + ' ' + str(seqlen) + ' ' + str(token_ID) + ' ' + str([layer_ID, layer_ID+1]) + ' ' + str([actual[layer_ID][token_ID], predict_next])
+                        print(output_str_actual)
+                        print(output_str_predict)
+                        with open("/workspace/MixtralKit/output_str_actual.txt", "a") as file:
+                            file.write(output_str_actual)
+                            file.write("\n")
+                        with open("/workspace/MixtralKit/output_str_predict.txt", "a") as file:
+                            file.write(output_str_predict)
+                            file.write("\n")
 
                 os.remove("/workspace/MixtralKit/output_data.json")
 
-            prompt_num = prompt_num - 1
-            if prompt_num == 0:
+            prompt_num = prompt_num + 1
+            if prompt_num == 64:
                 break
-
+        '''
         layer_predict_stats_json = {layer: dict(layer_predict_stats[layer]) for layer in layer_predict_stats}
         layer_hit_stats_json = {layer: dict(layer_hit_stats[layer]) for layer in layer_hit_stats}
         layer_actual_stats_json = {layer: dict(layer_actual_stats[layer]) for layer in layer_actual_stats}
@@ -179,11 +190,11 @@ def mmlu_eval(generator):
             outfile.write("\n")
             json.dump(layer_actual_stats_json, outfile)
             outfile.write("\n")
-        
+        '''
         print(f"Task {task} is done")
 
-        task_num = task_num - 1
-        if task_num == 0:
+        task_num = task_num + 1
+        if task_num == 16:
             break
 
 def main(generator):
