@@ -85,7 +85,7 @@ def quant(generator):
 
 def mmlu_eval(generator):
 
-    max_gen_len = 1
+    max_gen_len = 128
 
     mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
@@ -138,6 +138,8 @@ def mmlu_eval(generator):
                 actual = [[] for _ in range(33)]
                 with open("/workspace/MixtralKit/output_data.json", "r") as file:
                     
+                    prompt_len = 0
+                    
                     for i, line in enumerate(file):
                         data = json.loads(line)
                         expert_indices = data['expert_indices']
@@ -151,26 +153,34 @@ def mmlu_eval(generator):
                         elif j % 63 == 62: # actual layer 32
                             actual[32] = expert_indices
 
-                seqlen = len(actual[1])
-                # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layerID(1 ~ 32), expert_list([])
-                # sentenceID, is_prompt=1, prompt_len=seq_len, token_ID(0 ~ seq_len-1), layer_list([i, i+1], 1<=i<=31), expert_list([[],[]])
-                for token_ID in range(seqlen):
-                    for layer_ID in range(1,33):
-                        output_str_actual  = str(task_num*64 + prompt_num) + ' ' + '1' + ' ' + str(seqlen) + ' ' + str(token_ID) + ' ' + str(layer_ID) + ' ' + str(actual[layer_ID][token_ID])
-                        predict_next = [-1, -1]
-                        if layer_ID == 32:
-                            pass
-                        else:
-                            predict_next = predict[layer_ID+1][token_ID]
-                        output_str_predict = str(task_num*64 + prompt_num) + ' ' + '1' + ' ' + str(seqlen) + ' ' + str(token_ID) + ' ' + str([layer_ID, layer_ID+1]) + ' ' + str([actual[layer_ID][token_ID], predict_next])
-                        print(output_str_actual)
-                        print(output_str_predict)
-                        with open("/workspace/MixtralKit/output_str_actual.txt", "a") as file:
-                            file.write(output_str_actual)
-                            file.write("\n")
-                        with open("/workspace/MixtralKit/output_str_predict.txt", "a") as file:
-                            file.write(output_str_predict)
-                            file.write("\n")
+                        if j % 63 == 62:
+                            is_prompt = 1
+                            seqlen = len(actual[1])
+                            if seqlen == 1:
+                                is_prompt = 0
+                            else:
+                                prompt_len = seqlen
+                            # sentenceID, is_prompt=0 or 1, prompt_len, token_ID(0 ~ seq_len-1), layerID(1 ~ 32), expert_list([])
+                            # sentenceID, is_prompt=0 or 1, prompt_len, token_ID(0 ~ seq_len-1), layer_list([i, i+1], 1<=i<=31), expert_list([[],[]])
+                            for token_ID in range(seqlen):
+                                for layer_ID in range(1,33):
+                                    output_str_actual  = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_ID + (1-is_prompt) * prompt_len) + ' ' + str(layer_ID) + ' ' + str(actual[layer_ID][token_ID])
+                                    predict_next = [-1, -1]
+                                    if layer_ID == 32:
+                                        pass
+                                    else:
+                                        predict_next = predict[layer_ID+1][token_ID]
+                                    output_str_predict = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_ID + (1-is_prompt) * prompt_len) + ' ' + str([layer_ID, layer_ID+1]) + ' ' + str([actual[layer_ID][token_ID], predict_next])
+                                    print(output_str_actual)
+                                    print(output_str_predict)
+                                    with open("/workspace/MixtralKit/output_str_actual.txt", "a") as file:
+                                        file.write(output_str_actual)
+                                        file.write("\n")
+                                    with open("/workspace/MixtralKit/output_str_predict.txt", "a") as file:
+                                        file.write(output_str_predict)
+                                        file.write("\n")
+                            predict = [[] for _ in range(33)]
+                            actual = [[] for _ in range(33)]
 
                 os.remove("/workspace/MixtralKit/output_data.json")
 
@@ -233,5 +243,5 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    main(generator)
-    #mmlu_eval(generator)
+    # main(generator)
+    mmlu_eval(generator)

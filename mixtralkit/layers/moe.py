@@ -123,10 +123,10 @@ class QuantMoETorchFFN(nn.Module):
             # "scores": scores.tolist()
         }
 
-        if len(expert_indices.tolist()) > 1:
-            with open("/workspace/MixtralKit/output_data.json", "a") as file:
-                json.dump(output_data, file)
-                file.write("\n")
+        #if len(expert_indices.tolist()) > 1:
+        with open("/workspace/MixtralKit/output_data.json", "a") as file:
+            json.dump(output_data, file)
+            file.write("\n")
         
 
         for i, expert in enumerate(self.experts):
@@ -308,6 +308,8 @@ class SingleGPUMoETorchFFN(nn.Module):
         gpu_expert = 0
 
         print("Selected experts", expert_indices)
+
+        #TODO: we need to modify this to split copy and compute in decode, but normal in prefill
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
@@ -499,11 +501,11 @@ class PreloadMoETorchTransformer(TorchTransformer):
                     x = self.layers[i+1].ffn_norm(x)
                     x = x.view(-1, x.shape[-1])
 
-                    with torch.cuda.stream(self.stream):
-                        if next_feedforward.gate_softmax:
-                            scores = next_feedforward.gate(x).softmax(dim=-1)
-                        else:
-                            scores = next_feedforward.gate(x)
+                    # with torch.cuda.stream(self.stream):
+                    if next_feedforward.gate_softmax:
+                        scores = next_feedforward.gate(x).softmax(dim=-1)
+                    else:
+                        scores = next_feedforward.gate(x)
 
                     expert_weights, expert_indices = torch.topk(
                         scores, next_feedforward.num_experts_per_tok, dim=-1)
@@ -585,7 +587,29 @@ class QuantMoETorchTransformer(TorchTransformer):
             if next_feedforward is not None:
 
                 if start_pos != 0: #Decode
-                    pass
+                    x = self.layers[i+1].ffn_norm(x)
+                    x = x.view(-1, x.shape[-1])
+
+                    # with torch.cuda.stream(self.stream):
+                    if next_feedforward.gate_softmax:
+                        scores = next_feedforward.gate(x).softmax(dim=-1)
+                    else:
+                        scores = next_feedforward.gate(x)
+
+                    expert_weights, expert_indices = torch.topk(
+                        scores, next_feedforward.num_experts_per_tok, dim=-1)
+                    
+                    flat_expert_indices = expert_indices.view(-1)
+
+                    # print("Predict experts", expert_indices)
+
+                    output_data = {
+                        "expert_indices": expert_indices.tolist()
+                    }
+
+                    with open("/workspace/MixtralKit/output_data.json", "a") as file:
+                        json.dump(output_data, file)
+                        file.write("\n")
 
                 else: # Prefill
                     x = self.layers[i+1].ffn_norm(h)
