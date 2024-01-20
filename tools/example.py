@@ -139,6 +139,8 @@ def mmlu_eval(generator):
                 with open("/workspace/MixtralKit/output_data.json", "r") as file:
                     
                     prompt_len = 0
+                    gen_len = 0
+                    is_prompt = 1
                     
                     for i, line in enumerate(file):
                         data = json.loads(line)
@@ -154,23 +156,30 @@ def mmlu_eval(generator):
                             actual[32] = expert_indices
 
                         if j % 63 == 62:
-                            is_prompt = 1
+                            
                             seqlen = len(actual[1])
                             if seqlen == 1:
                                 is_prompt = 0
+                                gen_len = gen_len + 1
                             else:
                                 prompt_len = seqlen
+                                
                             # sentenceID, is_prompt=0 or 1, prompt_len, token_ID(0 ~ seq_len-1), layerID(1 ~ 32), expert_list([])
                             # sentenceID, is_prompt=0 or 1, prompt_len, token_ID(0 ~ seq_len-1), layer_list([i, i+1], 1<=i<=31), expert_list([[],[]])
                             for token_ID in range(seqlen):
                                 for layer_ID in range(1,33):
-                                    output_str_actual  = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_ID + (1-is_prompt) * prompt_len) + ' ' + str(layer_ID) + ' ' + str(actual[layer_ID][token_ID])
+                                    
+                                    token_pos = token_ID
+                                    if is_prompt == 0:
+                                        token_pos = prompt_len + gen_len - 1
+                                    
+                                    output_str_actual  = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_pos) + ' ' + str(layer_ID) + ' ' + str(actual[layer_ID][token_ID])
                                     predict_next = [-1, -1]
                                     if layer_ID == 32:
                                         pass
                                     else:
                                         predict_next = predict[layer_ID+1][token_ID]
-                                    output_str_predict = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_ID + (1-is_prompt) * prompt_len) + ' ' + str([layer_ID, layer_ID+1]) + ' ' + str([actual[layer_ID][token_ID], predict_next])
+                                    output_str_predict = str(task_num*64 + prompt_num) + ' ' + str(is_prompt) + ' ' + str(prompt_len) + ' ' + str(token_pos) + ' ' + str([layer_ID, layer_ID+1]) + ' ' + str([actual[layer_ID][token_ID], predict_next])
                                     print(output_str_actual)
                                     print(output_str_predict)
                                     with open("/workspace/MixtralKit/output_str_actual.txt", "a") as file:

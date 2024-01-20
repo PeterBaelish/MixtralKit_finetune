@@ -587,7 +587,7 @@ class QuantMoETorchTransformer(TorchTransformer):
             if next_feedforward is not None:
 
                 if start_pos != 0: #Decode
-                    x = self.layers[i+1].ffn_norm(x)
+                    x = self.layers[i+1].ffn_norm(h)
                     x = x.view(-1, x.shape[-1])
 
                     # with torch.cuda.stream(self.stream):
