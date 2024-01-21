@@ -309,8 +309,6 @@ class SingleGPUMoETorchFFN(nn.Module):
 
         print("Selected experts", expert_indices)
 
-        #TODO: we need to modify this to split copy and compute in decode, but normal in prefill
-
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
             if mask.any():
@@ -322,7 +320,7 @@ class SingleGPUMoETorchFFN(nn.Module):
                         gpu_expert = self.loaded_expert.index(-1)
                     else:
                         gpu_expert = (gpu_expert + 1) % self.num_expert_cache
-                        #TODO: LRU cache
+
                     self.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
                     self.loaded_expert[gpu_expert] = i
                     print("Cache miss. copy expert ID:", i)
@@ -393,8 +391,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
-        #TODO: Pytorch stream CANNOT parallel!! 
-        #TODO: We need to compute in non-default torch cuda stream, and load expert in custom stream
+        #TODO: Pytorch stream CANNOT parallel!! We need to compute in non-default torch cuda stream, and load expert in custom stream
         self.lib = ctypes.CDLL('/workspace/stream_manage.so')
 
         self.lib.createStream.argtypes = []
@@ -455,80 +452,179 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 mask
             ]).type_as(h)
 
-        x = h
         print("token begin")
         for i, layer in enumerate(self.layers):
 
+            #normal Attn
             with torch.cuda.stream(self.normal_stream):
                 h = h + layer.attention.forward(
                     layer.attention_norm(h), start_pos, freqs_cis, mask
                 )
-                print("normal stream end: ", time.time())
 
-            print("preload stream end", time.time())
+            h_store = h
+            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+
+            # compute&load current layer expert, predict next layer expert
+            with torch.cuda.stream(self.normal_stream):
+                # h = h + layer.feed_forward.forward(layer.ffn_norm(h))
+                h = layer.ffn_norm(h)
+
+                orig_shape = h.shape
+                h = h.view(-1, h.shape[-1])
+                device = h.device
+
+                if layer.feed_forward.gate_softmax:
+                    scores = layer.feed_forward.gate(h).softmax(dim=-1)
+                else:
+                    scores = layer.feed_forward.gate(h)
+
+                expert_weights, expert_indices = torch.topk(
+                    scores, layer.feed_forward.num_experts_per_tok, dim=-1)
+                expert_weights = expert_weights.softmax(dim=-1)
+
+                flat_expert_indices = expert_indices.view(-1)
+
+                h = h.repeat_interleave(layer.feed_forward.num_experts_per_tok, dim=0)
+                y = torch.empty_like(h)
+
+                gpu_expert = 0
+
+                print("Selected experts", expert_indices)
+
+
+                # predict next expert
+                x = self.layers[i+1].ffn_norm(h_store)
+                x = x.view(-1, x.shape[-1])
+
+                if next_feedforward.gate_softmax:
+                    scores = next_feedforward.gate(x).softmax(dim=-1)
+                else:
+                    scores = next_feedforward.gate(x)
+
+                predict_expert_weights, predict_expert_indices = torch.topk(
+                    scores, next_feedforward.num_experts_per_tok, dim=-1)
+                
+                predict_flat_expert_indices = predict_expert_indices.view(-1)
+                
+
+                #split copy and compute in decode, but normal in prefill
+                if start_pos == 0: # prefill. We don't split copy and compute here since we cannot load all the experts in the same time
+
+                    for j, expert in enumerate(layer.feed_forward.experts):
+                        mask = (flat_expert_indices == j)
+                        if mask.any():
+                        
+                            num_threads = 4
+
+                            if j not in layer.feed_forward.loaded_expert:
+                                if -1 in layer.feed_forward.loaded_expert:
+                                    gpu_expert = layer.feed_forward.loaded_expert.index(-1)
+                                else:
+                                    gpu_expert = (gpu_expert + 1) % layer.feed_forward.num_expert_cache
+
+                                layer.feed_forward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
+                                layer.feed_forward.loaded_expert[gpu_expert] = j
+                                print("Cache miss. copy expert ID:", j)
+                            else:
+                                gpu_expert = layer.feed_forward.loaded_expert.index(j)
+                                print("Cache hit. hit expert ID:", j)
+
+                            
+                            # memory_stats = torch.cuda.memory_stats()
+                            # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
+
+                            start_time = time.time()
+                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](h[mask])
+
+                            end_time = time.time()
+                            elapsed_time = (end_time - start_time) * 1000
+                            # print(f"expert compute time: {elapsed_time} ms")
+                
+                else: #decode. We split compute and copy and only copy here to make more parallel between compute and preload
+                    
+                    for j, expert in enumerate(layer.feed_forward.experts):
+                        mask = (flat_expert_indices == j)
+                        if mask.any():
+                        
+                            num_threads = 4
+
+                            if j not in layer.feed_forward.loaded_expert:
+                                if -1 in layer.feed_forward.loaded_expert:
+                                    gpu_expert = layer.feed_forward.loaded_expert.index(-1)
+                                else:
+                                    gpu_expert = (gpu_expert + 1) % layer.feed_forward.num_expert_cache
+
+                                layer.feed_forward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
+                                layer.feed_forward.loaded_expert[gpu_expert] = j
+                                print("Cache miss. copy expert ID:", j)
+                            else:
+                                gpu_expert = layer.feed_forward.loaded_expert.index(j)
+                                print("Cache hit. hit expert ID:", j)
+                            # memory_stats = torch.cuda.memory_stats()
+                            # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
+
+            # Sync
             self.lib.synchronizeStream(self.stream)
             self.lib.synchronizeStream(self.normal_stream)
 
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
-            x = h
-
-            with torch.cuda.stream(self.normal_stream):
-                print("normal stream start: ", time.time())
-                h = h + layer.feed_forward.forward(layer.ffn_norm(h))
-
-            print("preload stream start", time.time())
-            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+            # Preload
             if next_feedforward is not None:
                 gpu_expert = 0
 
                 if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
-                    flat_expert_indices = torch.tensor([0, 1])
-                    for i, expert in enumerate(next_feedforward.experts):
-                        expert_mask = (flat_expert_indices == i)
+
+                    predict_flat_expert_indices = torch.tensor([0, 1])
+
+                    for j, expert in enumerate(next_feedforward.experts):
+                        expert_mask = (predict_flat_expert_indices == j)
                         if expert_mask.any():
                             num_threads = 4
-                            if i not in next_feedforward.loaded_expert:
+                            if j not in next_feedforward.loaded_expert:
                                 if -1 in next_feedforward.loaded_expert:
                                     gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
                                     gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
                                 next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
-                                next_feedforward.loaded_expert[gpu_expert] = i
+                                next_feedforward.loaded_expert[gpu_expert] = j
                             else:
-                                gpu_expert = next_feedforward.loaded_expert.index(i)
+                                gpu_expert = next_feedforward.loaded_expert.index(j)
                 else: # Decode
-                    x = self.layers[i+1].ffn_norm(x)
-                    x = x.view(-1, x.shape[-1])
 
-                    # with torch.cuda.stream(self.stream):
-                    if next_feedforward.gate_softmax:
-                        scores = next_feedforward.gate(x).softmax(dim=-1)
-                    else:
-                        scores = next_feedforward.gate(x)
-
-                    expert_weights, expert_indices = torch.topk(
-                        scores, next_feedforward.num_experts_per_tok, dim=-1)
-                    
-                    flat_expert_indices = expert_indices.view(-1)
-
-                    print("Predict experts", expert_indices)
-                    for i, expert in enumerate(next_feedforward.experts):
-                        expert_mask = (flat_expert_indices == i)
+                    for j, expert in enumerate(next_feedforward.experts):
+                        expert_mask = (predict_flat_expert_indices == j)
                         if expert_mask.any():
                             num_threads = 4
-                            if i not in next_feedforward.loaded_expert:
+                            if j not in next_feedforward.loaded_expert:
                                 if -1 in next_feedforward.loaded_expert:
                                     gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
                                     gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
-                                    #TODO: LRU cache
+
                                 next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
-                                next_feedforward.loaded_expert[gpu_expert] = i
+                                next_feedforward.loaded_expert[gpu_expert] = j
                             else:
-                                gpu_expert = next_feedforward.loaded_expert.index(i)
-        
-        # torch.cuda.synchronize()
+                                gpu_expert = next_feedforward.loaded_expert.index(j)
+
+            # normal MoEFFN when Decode
+            with torch.cuda.stream(self.normal_stream):
+                if start_pos != 0:
+                    for j, expert in enumerate(layer.feed_forward.experts):
+                        mask = (flat_expert_indices == j)
+                        if mask.any():
+                            gpu_expert = layer.feed_forward.loaded_expert.index(j)
+
+                            start_time = time.time()
+                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](h[mask])
+
+                            end_time = time.time()
+                            elapsed_time = (end_time - start_time) * 1000
+                            # print(f"expert compute time: {elapsed_time} ms")
+                    
+                y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
+                h = y.view(*orig_shape)
+                h = h + h_store
+
+        torch.cuda.synchronize()
         
         h = self.norm(h)
         output = self.output(h).float()
@@ -650,7 +746,6 @@ class MoETorchTransformer(TorchTransformer):
 
 """
 Implementation for FairScale Backend
-TODO: Stay Tuned.
 """
 
 class MoEFairScaleFFN(nn.Module):

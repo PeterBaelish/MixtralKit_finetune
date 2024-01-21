@@ -48,8 +48,8 @@ c = torch.full((1, size), 1.0, device='cuda')
 b = torch.full((size, size), 2.0, device='cpu')
 b_g = torch.full((size, size), 3.0, device='cuda')
 
-gate1 = nn.Linear(size, 8, bias=False).cuda()
-gate2 = nn.Linear(8, size, bias=False).cuda()
+gate1 = nn.Linear(size, size*4, bias=False).cuda()
+gate2 = nn.Linear(size*4, size, bias=False).cuda()
 
 torch.cuda.synchronize()
 

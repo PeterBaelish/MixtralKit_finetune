@@ -252,5 +252,5 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    # main(generator)
-    mmlu_eval(generator)
+    main(generator)
+    # mmlu_eval(generator)

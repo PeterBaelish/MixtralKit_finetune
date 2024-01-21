@@ -92,7 +92,7 @@ class Mixtral:
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        model = QuantMoETorchTransformer(model_args)
+        model = PreloadMoETorchTransformer(model_args)
         print(f"=== created Mixtral 8x7B. Experts spread over {num_gpus} GPUs ===")
         model_param_keys = []
         for key, value in model.named_parameters():
@@ -107,7 +107,7 @@ class Mixtral:
 
         return Mixtral(model, tokenizer)
     
-    def __init__(self, model: QuantMoETorchTransformer, tokenizer: Tokenizer):
+    def __init__(self, model: PreloadMoETorchTransformer, tokenizer: Tokenizer):
         self.model = model
         self.tokenizer = tokenizer
 
