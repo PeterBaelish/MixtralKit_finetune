@@ -435,21 +435,21 @@ class PreloadMoETorchTransformer(TorchTransformer):
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
-        mask = None
+        attn_mask = None
         if seqlen > 1:
-            mask = torch.full(
+            attn_mask = torch.full(
                 (seqlen, seqlen), float("-inf"), device=tokens.device
             )
 
-            mask = torch.triu(mask, diagonal=1)
+            attn_mask = torch.triu(attn_mask, diagonal=1)
 
             # When performing key-value caching, we compute the attention scores
             # only for the new sequence. Thus, the matrix of scores is of size
             # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
             # j > cache_len + i, since row i corresponds to token cache_len + i.
-            mask = torch.hstack([
+            attn_mask = torch.hstack([
                 torch.zeros((seqlen, start_pos), device=tokens.device),
-                mask
+                attn_mask
             ]).type_as(h)
 
         print("token begin")
@@ -458,7 +458,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
             #normal Attn
             with torch.cuda.stream(self.normal_stream):
                 h = h + layer.attention.forward(
-                    layer.attention_norm(h), start_pos, freqs_cis, mask
+                    layer.attention_norm(h), start_pos, freqs_cis, attn_mask
                 )
                 h_store = h
 
@@ -467,16 +467,16 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 # compute&load current layer expert, predict next layer expert
 
                 # h = h + layer.feed_forward.forward(layer.ffn_norm(h))
-                h = layer.ffn_norm(h)
+                z = layer.ffn_norm(h)
 
-                orig_shape = h.shape
-                h = h.view(-1, h.shape[-1])
-                device = h.device
+                orig_shape = z.shape
+                z = z.view(-1, z.shape[-1])
+                device = z.device
 
                 if layer.feed_forward.gate_softmax:
-                    scores = layer.feed_forward.gate(h).softmax(dim=-1)
+                    scores = layer.feed_forward.gate(z).softmax(dim=-1)
                 else:
-                    scores = layer.feed_forward.gate(h)
+                    scores = layer.feed_forward.gate(z)
 
                 expert_weights, expert_indices = torch.topk(
                     scores, layer.feed_forward.num_experts_per_tok, dim=-1)
@@ -484,8 +484,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
                 flat_expert_indices = expert_indices.view(-1)
 
-                h = h.repeat_interleave(layer.feed_forward.num_experts_per_tok, dim=0)
-                y = torch.empty_like(h)
+                z = z.repeat_interleave(layer.feed_forward.num_experts_per_tok, dim=0)
+                y = torch.empty_like(z)
 
                 gpu_expert = 0
 
@@ -505,8 +505,14 @@ class PreloadMoETorchTransformer(TorchTransformer):
                         scores, next_feedforward.num_experts_per_tok, dim=-1)
                     
                     predict_flat_expert_indices = predict_expert_indices.view(-1)
-                    
-                
+                    print("Predict experts", predict_expert_indices)
+
+            # Sync
+            self.lib.synchronizeStream(self.stream)
+            self.lib.synchronizeStream(self.normal_stream)     
+            
+
+            with torch.cuda.stream(self.normal_stream):
                 #split copy and compute in decode, but normal in prefill
                 if start_pos == 0: # prefill. We don't split copy and compute here since we cannot load all the experts in the same time
 
@@ -534,7 +540,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
                             start_time = time.time()
-                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](h[mask])
+                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](z[mask])
 
                             end_time = time.time()
                             elapsed_time = (end_time - start_time) * 1000
@@ -615,7 +621,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             gpu_expert = layer.feed_forward.loaded_expert.index(j)
 
                             start_time = time.time()
-                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](h[mask])
+                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](z[mask])
 
                             end_time = time.time()
                             elapsed_time = (end_time - start_time) * 1000

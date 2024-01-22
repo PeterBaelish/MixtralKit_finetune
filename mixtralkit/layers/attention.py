@@ -124,7 +124,6 @@ class TorchAttention(nn.Module):
         # repeat k/v heads if n_kv_heads < n_heads
         keys = repeat_kv(keys, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
         values = repeat_kv(values, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
-
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         keys = keys.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
         values = values.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)

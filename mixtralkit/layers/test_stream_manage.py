@@ -47,6 +47,7 @@ a = torch.full((1, size), 3.0, device='cuda')
 c = torch.full((1, size), 1.0, device='cuda')
 b = torch.full((size, size), 2.0, device='cpu')
 b_g = torch.full((size, size), 3.0, device='cuda')
+flag = [1,0]
 
 gate1 = nn.Linear(size, size*4, bias=False).cuda()
 gate2 = nn.Linear(size*4, size, bias=False).cuda()
@@ -58,8 +59,8 @@ with torch.cuda.stream(stream1):
         a = gate1(a)
         a = gate2(a)
 
-c = gate1(c)
-c = gate2(c)
+# c = gate1(c)
+# c = gate2(c)
 
 rows = b.shape[0]
 cols = b.shape[1]
@@ -71,6 +72,8 @@ lib.copy2DTensorCpuToGpuOnStream_float(ctypes.c_void_p(dst_gpu_memory_address),
             ctypes.c_int(rows),
             ctypes.c_int(cols),
             stream2)
+
+flag[0] = 0
 
 # Synchronize
 lib.synchronizeStream(stream1)
