@@ -460,12 +460,12 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 h = h + layer.attention.forward(
                     layer.attention_norm(h), start_pos, freqs_cis, mask
                 )
+                h_store = h
 
-            h_store = h
-            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
+                next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
 
-            # compute&load current layer expert, predict next layer expert
-            with torch.cuda.stream(self.normal_stream):
+                # compute&load current layer expert, predict next layer expert
+
                 # h = h + layer.feed_forward.forward(layer.ffn_norm(h))
                 h = layer.ffn_norm(h)
 
@@ -491,22 +491,22 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
                 print("Selected experts", expert_indices)
 
-
                 # predict next expert
-                x = self.layers[i+1].ffn_norm(h_store)
-                x = x.view(-1, x.shape[-1])
+                if next_feedforward is not None:
+                    x = self.layers[i+1].ffn_norm(h_store)
+                    x = x.view(-1, x.shape[-1])
 
-                if next_feedforward.gate_softmax:
-                    scores = next_feedforward.gate(x).softmax(dim=-1)
-                else:
-                    scores = next_feedforward.gate(x)
+                    if next_feedforward.gate_softmax:
+                        scores = next_feedforward.gate(x).softmax(dim=-1)
+                    else:
+                        scores = next_feedforward.gate(x)
 
-                predict_expert_weights, predict_expert_indices = torch.topk(
-                    scores, next_feedforward.num_experts_per_tok, dim=-1)
+                    predict_expert_weights, predict_expert_indices = torch.topk(
+                        scores, next_feedforward.num_experts_per_tok, dim=-1)
+                    
+                    predict_flat_expert_indices = predict_expert_indices.view(-1)
+                    
                 
-                predict_flat_expert_indices = predict_expert_indices.view(-1)
-                
-
                 #split copy and compute in decode, but normal in prefill
                 if start_pos == 0: # prefill. We don't split copy and compute here since we cannot load all the experts in the same time
 
@@ -567,9 +567,10 @@ class PreloadMoETorchTransformer(TorchTransformer):
             self.lib.synchronizeStream(self.stream)
             self.lib.synchronizeStream(self.normal_stream)
 
+            next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
             # Preload
             if next_feedforward is not None:
-                gpu_expert = 0
+                pre_gpu_expert = 0
 
                 if start_pos == 0: #Prefill. We simply load expert 0 and 1, since it will use all of the expert mostly
 
@@ -581,13 +582,13 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             num_threads = 4
                             if j not in next_feedforward.loaded_expert:
                                 if -1 in next_feedforward.loaded_expert:
-                                    gpu_expert = next_feedforward.loaded_expert.index(-1)
+                                    pre_gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
-                                    gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
-                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
-                                next_feedforward.loaded_expert[gpu_expert] = j
+                                    pre_gpu_expert = (pre_gpu_expert + 1) % next_feedforward.num_expert_cache
+                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, pre_gpu_expert, num_threads, self.stream, self.lib)
+                                next_feedforward.loaded_expert[pre_gpu_expert] = j
                             else:
-                                gpu_expert = next_feedforward.loaded_expert.index(j)
+                                pre_gpu_expert = next_feedforward.loaded_expert.index(j)
                 else: # Decode
 
                     for j, expert in enumerate(next_feedforward.experts):
@@ -596,14 +597,14 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             num_threads = 4
                             if j not in next_feedforward.loaded_expert:
                                 if -1 in next_feedforward.loaded_expert:
-                                    gpu_expert = next_feedforward.loaded_expert.index(-1)
+                                    pre_gpu_expert = next_feedforward.loaded_expert.index(-1)
                                 else:
-                                    gpu_expert = (gpu_expert + 1) % next_feedforward.num_expert_cache
+                                    pre_gpu_expert = (pre_gpu_expert + 1) % next_feedforward.num_expert_cache
 
-                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, gpu_expert, num_threads, self.stream, self.lib)
-                                next_feedforward.loaded_expert[gpu_expert] = j
+                                next_feedforward.load_expert_cpu_to_gpu_on_stream(expert, pre_gpu_expert, num_threads, self.stream, self.lib)
+                                next_feedforward.loaded_expert[pre_gpu_expert] = j
                             else:
-                                gpu_expert = next_feedforward.loaded_expert.index(j)
+                                pre_gpu_expert = next_feedforward.loaded_expert.index(j)
 
             # normal MoEFFN when Decode
             with torch.cuda.stream(self.normal_stream):
@@ -621,8 +622,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
                             # print(f"expert compute time: {elapsed_time} ms")
                     
                 y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
-                h = y.view(*orig_shape)
-                h = h + h_store
+                y = y.view(*orig_shape)
+                h = y + h_store
 
         torch.cuda.synchronize()
         
