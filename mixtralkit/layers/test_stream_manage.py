@@ -54,17 +54,9 @@ gate2 = nn.Linear(size*4, size, bias=False).cuda()
 
 torch.cuda.synchronize()
 
-with torch.cuda.stream(stream1):
-    for _ in range(5):
-        a = gate1(a)
-        a = gate2(a)
-
-# c = gate1(c)
-# c = gate2(c)
-
 rows = b.shape[0]
 cols = b.shape[1]
-
+# It doesn't parallel when copy is in front of compute!!But parallel when compute is in front of copy!!
 src_cpu_memory_address = b.data_ptr()
 dst_gpu_memory_address = b_g.data_ptr()
 lib.copy2DTensorCpuToGpuOnStream_float(ctypes.c_void_p(dst_gpu_memory_address),
@@ -73,7 +65,10 @@ lib.copy2DTensorCpuToGpuOnStream_float(ctypes.c_void_p(dst_gpu_memory_address),
             ctypes.c_int(cols),
             stream2)
 
-flag[0] = 0
+with torch.cuda.stream(stream1):
+    for _ in range(5):
+        a = gate1(a)
+        a = gate2(a)
 
 # Synchronize
 lib.synchronizeStream(stream1)

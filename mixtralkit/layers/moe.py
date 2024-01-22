@@ -573,6 +573,25 @@ class PreloadMoETorchTransformer(TorchTransformer):
             self.lib.synchronizeStream(self.stream)
             self.lib.synchronizeStream(self.normal_stream)
 
+            # normal MoEFFN when Decode
+            with torch.cuda.stream(self.normal_stream):
+                if start_pos != 0:
+                    for j, expert in enumerate(layer.feed_forward.experts):
+                        mask = (flat_expert_indices == j)
+                        if mask.any():
+                            gpu_expert = layer.feed_forward.loaded_expert.index(j)
+
+                            start_time = time.time()
+                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](z[mask])
+
+                            end_time = time.time()
+                            elapsed_time = (end_time - start_time) * 1000
+                            # print(f"expert compute time: {elapsed_time} ms")
+                    
+                y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
+                y = y.view(*orig_shape)
+                h = y + h_store
+
             next_feedforward = self.layers[i+1].feed_forward if i+1 < self.n_layers else None
             # Preload
             if next_feedforward is not None:
@@ -611,25 +630,6 @@ class PreloadMoETorchTransformer(TorchTransformer):
                                 next_feedforward.loaded_expert[pre_gpu_expert] = j
                             else:
                                 pre_gpu_expert = next_feedforward.loaded_expert.index(j)
-
-            # normal MoEFFN when Decode
-            with torch.cuda.stream(self.normal_stream):
-                if start_pos != 0:
-                    for j, expert in enumerate(layer.feed_forward.experts):
-                        mask = (flat_expert_indices == j)
-                        if mask.any():
-                            gpu_expert = layer.feed_forward.loaded_expert.index(j)
-
-                            start_time = time.time()
-                            y[mask] = layer.feed_forward.experts_gpu[gpu_expert](z[mask])
-
-                            end_time = time.time()
-                            elapsed_time = (end_time - start_time) * 1000
-                            # print(f"expert compute time: {elapsed_time} ms")
-                    
-                y = (y.view(*expert_weights.shape, -1) * expert_weights.unsqueeze(-1)).sum(dim=1)
-                y = y.view(*orig_shape)
-                h = y + h_store
 
         torch.cuda.synchronize()
         
