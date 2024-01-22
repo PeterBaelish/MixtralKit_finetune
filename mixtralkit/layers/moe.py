@@ -507,6 +507,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
                     predict_flat_expert_indices = predict_expert_indices.view(-1)
                     print("Predict experts", predict_expert_indices)
 
+            ## VERY IMPORTANT: WE MUST SYNC HERE, OTHERWISE PRELOAD AND COPY WILL CONTENT!!
+
             # Sync
             self.lib.synchronizeStream(self.stream)
             self.lib.synchronizeStream(self.normal_stream)     
@@ -572,6 +574,8 @@ class PreloadMoETorchTransformer(TorchTransformer):
             # Sync
             self.lib.synchronizeStream(self.stream)
             self.lib.synchronizeStream(self.normal_stream)
+
+            ## VERY IMPORTANT: COMPUTE MUST BE IN FRONT OF COPY, OTHER WISE THEY WON'T PARALLEL!!   
 
             # normal MoEFFN when Decode
             with torch.cuda.stream(self.normal_stream):
