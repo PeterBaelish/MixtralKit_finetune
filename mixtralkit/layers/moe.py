@@ -117,17 +117,17 @@ class QuantMoETorchFFN(nn.Module):
         y = torch.empty_like(x)
         
         # print("Selected experts", expert_indices)
-
+        '''
         output_data = {
             "expert_indices": expert_indices.tolist()
             # "scores": scores.tolist()
         }
-
+        
         #if len(expert_indices.tolist()) > 1:
         with open("/workspace/MixtralKit/output_data.json", "a") as file:
             json.dump(output_data, file)
             file.write("\n")
-        
+        '''
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
@@ -391,11 +391,12 @@ class PreloadMoETorchTransformer(TorchTransformer):
         for layer_id in range(params.n_layers):
             self.layers.append(SingleGPUMoETorchTransformerBlock(layer_id, params))
         
-        #TODO: Pytorch stream CANNOT parallel!! We need to compute in non-default torch cuda stream, and load expert in custom stream
         self.lib = ctypes.CDLL('/workspace/stream_manage.so')
 
         self.lib.createStream.argtypes = []
         self.lib.createStream.restype = ctypes.c_void_p
+
+        #TODO: pinned memory? Can we design a CPU mem control that we can accelerate the copy time
 
         # copyCpuToGpuOnStream
         self.lib.copyCpuToGpuOnStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
@@ -709,7 +710,7 @@ class QuantMoETorchTransformer(TorchTransformer):
                     flat_expert_indices = expert_indices.view(-1)
 
                     # print("Predict experts", expert_indices)
-
+                    '''
                     output_data = {
                         "expert_indices": expert_indices.tolist()
                     }
@@ -717,6 +718,7 @@ class QuantMoETorchTransformer(TorchTransformer):
                     with open("/workspace/MixtralKit/output_data.json", "a") as file:
                         json.dump(output_data, file)
                         file.write("\n")
+                    '''
 
                 else: # Prefill
                     x = self.layers[i+1].ffn_norm(h)
@@ -732,7 +734,7 @@ class QuantMoETorchTransformer(TorchTransformer):
                     flat_expert_indices = expert_indices.view(-1)
 
                     # print("Predict experts", expert_indices)
-
+                    '''
                     output_data = {
                         "expert_indices": expert_indices.tolist()
                     }
@@ -740,6 +742,7 @@ class QuantMoETorchTransformer(TorchTransformer):
                     with open("/workspace/MixtralKit/output_data.json", "a") as file:
                         json.dump(output_data, file)
                         file.write("\n")
+                    '''
 
             h = h + layer.feed_forward.forward(layer.ffn_norm(h))
         

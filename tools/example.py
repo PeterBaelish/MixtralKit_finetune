@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import time
+import math
 from collections import defaultdict
 import pandas as pd
 from mixtralkit.mixtral import Mixtral
@@ -90,6 +91,9 @@ def mmlu_eval(generator):
     mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
 
+    token_num = 0
+    log_sum = 0
+
     task_num = 0
 
     for csvfile in mmlu_files:
@@ -133,11 +137,19 @@ def mmlu_eval(generator):
                 print("="*30 + "Example END" + "="*30 + '\n')
             
             if os.path.exists("/workspace/MixtralKit/output_data.json"):
-                
+                '''
                 predict = [[] for _ in range(33)]
                 actual = [[] for _ in range(33)]
+                '''
                 with open("/workspace/MixtralKit/output_data.json", "r") as file:
-                    
+
+                    for i, line in enumerate(file):
+                        data = json.loads(line) # List: [bsz]
+                        for j in range(len(data)):
+                            log_sum = log_sum + math.log(data[j])
+                            token_num = token_num + 1
+
+                    '''
                     prompt_len = 0
                     gen_len = 0
                     is_prompt = 1
@@ -190,8 +202,10 @@ def mmlu_eval(generator):
                                         file.write("\n")
                             predict = [[] for _ in range(33)]
                             actual = [[] for _ in range(33)]
-
+                    '''
                 os.remove("/workspace/MixtralKit/output_data.json")
+
+            print("middle Perplexity = ", math.exp(-log_sum/token_num))
 
             prompt_num = prompt_num + 1
             if prompt_num == 64:
@@ -215,6 +229,8 @@ def mmlu_eval(generator):
         task_num = task_num + 1
         if task_num == 16:
             break
+    
+    print("Perplexity = ", math.exp(-log_sum/token_num))
 
 def main(generator):
 
@@ -252,5 +268,5 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    main(generator)
-    # mmlu_eval(generator)
+    # main(generator)
+    mmlu_eval(generator)

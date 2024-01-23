@@ -179,12 +179,14 @@ class Mixtral:
             start_time = time.time()
 
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
-            '''
-            probs, _ = torch.max(torch.softmax(logits[:, -1], dim=-1),dim=1)
+            ''''''
+            probs, _ = torch.max(torch.softmax(logits[:, -1], dim=-1),dim=1) # probs: (bsz)
+            print(probs.tolist())
+
             with open("/workspace/MixtralKit/output_data.json", "a") as file:
-                json.dump(probs, file)
+                json.dump(probs.tolist(), file)
                 file.write("\n")
-            '''
+            
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)
