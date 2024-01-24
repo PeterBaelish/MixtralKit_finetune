@@ -65,7 +65,7 @@ class MoETorchFFN(nn.Module):
             file.write("\n")
         '''
 
-        print("Selected experts", expert_indices)
+        # print("Selected experts", expert_indices)
         # print("scores of all experts", scores)
 
         flat_expert_indices = expert_indices.view(-1)
@@ -225,17 +225,17 @@ class SingleGPUMoETorchFFN(nn.Module):
             thread.join()
 
     def load_expert_cpu_to_gpu(self, expert, gpu_expert, num_threads):
-        start_time = time.time()
+        # start_time = time.time()
 
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w1.W_q.data, expert.w1.W_q.data, num_threads, 0)
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w2.W_q.data, expert.w2.W_q.data, num_threads, 0)
         self.multi_threaded_cpu_to_gpu_transfer(self.experts_gpu[gpu_expert].w3.W_q.data, expert.w3.W_q.data, num_threads, 0)
 
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
-        print(f"expert weight copy time: {elapsed_time} ms")
+        # end_time = time.time()
+        # elapsed_time = (end_time - start_time) * 1000
+        # print(f"expert weight copy time: {elapsed_time} ms")
 
-        start_time = time.time()
+        # start_time = time.time()
         
         #copy meta
         self.experts_gpu[gpu_expert].w1.meta = {
@@ -251,22 +251,22 @@ class SingleGPUMoETorchFFN(nn.Module):
             for key, value in expert.w3.meta.items()
         }
         
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
+        # end_time = time.time()
+        # elapsed_time = (end_time - start_time) * 1000
         # print(f"expert meta copy time: {elapsed_time} ms")
 
     def load_expert_cpu_to_gpu_on_stream(self, expert, gpu_expert, num_threads, stream, lib):
-        start_time = time.time()
+        # start_time = time.time()
 
         self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w1.W_q.data, expert.w1.W_q.data, num_threads, 0, stream, lib)
         self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w2.W_q.data, expert.w2.W_q.data, num_threads, 0, stream, lib)
         self.multi_threaded_cpu_to_gpu_transfer_on_stream(self.experts_gpu[gpu_expert].w3.W_q.data, expert.w3.W_q.data, num_threads, 0, stream, lib)
 
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
-        print(f"expert weight copy time: {elapsed_time} ms")
+        # end_time = time.time()
+        # elapsed_time = (end_time - start_time) * 1000
+        # print(f"expert weight copy time: {elapsed_time} ms")
 
-        start_time = time.time()
+        # start_time = time.time()
         
         #copy meta
         self.experts_gpu[gpu_expert].w1.meta = {
@@ -282,8 +282,8 @@ class SingleGPUMoETorchFFN(nn.Module):
             for key, value in expert.w3.meta.items()
         }
         
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
+        # end_time = time.time()
+        # elapsed_time = (end_time - start_time) * 1000
         # print(f"expert meta copy time: {elapsed_time} ms")
 
     def forward(self, x):
@@ -307,7 +307,7 @@ class SingleGPUMoETorchFFN(nn.Module):
         
         gpu_expert = 0
 
-        print("Selected experts", expert_indices)
+        # print("Selected experts", expert_indices)
 
         for i, expert in enumerate(self.experts):
             mask = (flat_expert_indices == i)
@@ -323,10 +323,10 @@ class SingleGPUMoETorchFFN(nn.Module):
 
                     self.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
                     self.loaded_expert[gpu_expert] = i
-                    print("Cache miss. copy expert ID:", i)
+                    # print("Cache miss. copy expert ID:", i)
                 else:
                     gpu_expert = self.loaded_expert.index(i)
-                    print("Cache hit. hit expert ID:", i)
+                    # print("Cache hit. hit expert ID:", i)
 
                 
                 # memory_stats = torch.cuda.memory_stats()
@@ -453,7 +453,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
                 attn_mask
             ]).type_as(h)
 
-        print("token begin")
+        # print("token begin")
         for i, layer in enumerate(self.layers):
 
             #normal Attn
@@ -490,7 +490,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
                 gpu_expert = 0
 
-                print("Selected experts", expert_indices)
+                # print("Selected experts", expert_indices)
 
                 # predict next expert
                 if next_feedforward is not None:
@@ -506,7 +506,7 @@ class PreloadMoETorchTransformer(TorchTransformer):
                         scores, next_feedforward.num_experts_per_tok, dim=-1)
                     
                     predict_flat_expert_indices = predict_expert_indices.view(-1)
-                    print("Predict experts", predict_expert_indices)
+                    # print("Predict experts", predict_expert_indices)
 
             ## VERY IMPORTANT: WE MUST SYNC HERE, OTHERWISE PRELOAD AND COPY WILL CONTENT!!
 
@@ -533,20 +533,20 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
                                 layer.feed_forward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
                                 layer.feed_forward.loaded_expert[gpu_expert] = j
-                                print("Cache miss. copy expert ID:", j)
+                                # print("Cache miss. copy expert ID:", j)
                             else:
                                 gpu_expert = layer.feed_forward.loaded_expert.index(j)
-                                print("Cache hit. hit expert ID:", j)
+                                # print("Cache hit. hit expert ID:", j)
 
                             
                             # memory_stats = torch.cuda.memory_stats()
                             # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 
-                            start_time = time.time()
+                            # start_time = time.time()
                             y[mask] = layer.feed_forward.experts_gpu[gpu_expert](z[mask])
 
-                            end_time = time.time()
-                            elapsed_time = (end_time - start_time) * 1000
+                            # end_time = time.time()
+                            # elapsed_time = (end_time - start_time) * 1000
                             # print(f"expert compute time: {elapsed_time} ms")
                 
                 else: #decode. We split compute and copy and only copy here to make more parallel between compute and preload
@@ -565,10 +565,10 @@ class PreloadMoETorchTransformer(TorchTransformer):
 
                                 layer.feed_forward.load_expert_cpu_to_gpu(expert, gpu_expert, num_threads)
                                 layer.feed_forward.loaded_expert[gpu_expert] = j
-                                print("Cache miss. copy expert ID:", j)
+                                # print("Cache miss. copy expert ID:", j)
                             else:
                                 gpu_expert = layer.feed_forward.loaded_expert.index(j)
-                                print("Cache hit. hit expert ID:", j)
+                                # print("Cache hit. hit expert ID:", j)
                             # memory_stats = torch.cuda.memory_stats()
                             # print("current alloc mem GB:",memory_stats["allocated_bytes.all.current"]/(1024**3))
 

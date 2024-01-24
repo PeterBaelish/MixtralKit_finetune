@@ -8,6 +8,8 @@ import math
 from collections import defaultdict
 import pandas as pd
 from mixtralkit.mixtral import Mixtral
+import requests
+from tqdm import tqdm
 from hqq.core.quantize import *
 from hqq.models.hf.mixtral import MixtralHQQ
 
@@ -84,15 +86,12 @@ def quant(generator):
 
     return generator
 
-def mmlu_eval(generator):
+def mmlu_predict_test(generator):
 
     max_gen_len = 128
 
     mmlu_path = "/workspace/mmlu"
     mmlu_files = os.listdir(mmlu_path)
-
-    token_num = 0
-    log_sum = 0
 
     task_num = 0
 
@@ -137,19 +136,12 @@ def mmlu_eval(generator):
                 print("="*30 + "Example END" + "="*30 + '\n')
             
             if os.path.exists("/workspace/MixtralKit/output_data.json"):
-                '''
+                
                 predict = [[] for _ in range(33)]
                 actual = [[] for _ in range(33)]
-                '''
+                
                 with open("/workspace/MixtralKit/output_data.json", "r") as file:
 
-                    for i, line in enumerate(file):
-                        data = json.loads(line) # List: [bsz]
-                        for j in range(len(data)):
-                            log_sum = log_sum + math.log(data[j])
-                            token_num = token_num + 1
-
-                    '''
                     prompt_len = 0
                     gen_len = 0
                     is_prompt = 1
@@ -202,10 +194,8 @@ def mmlu_eval(generator):
                                         file.write("\n")
                             predict = [[] for _ in range(33)]
                             actual = [[] for _ in range(33)]
-                    '''
+                    
                 os.remove("/workspace/MixtralKit/output_data.json")
-
-            print("middle Perplexity = ", math.exp(-log_sum/token_num))
 
             prompt_num = prompt_num + 1
             if prompt_num == 64:
@@ -214,7 +204,7 @@ def mmlu_eval(generator):
         layer_predict_stats_json = {layer: dict(layer_predict_stats[layer]) for layer in layer_predict_stats}
         layer_hit_stats_json = {layer: dict(layer_hit_stats[layer]) for layer in layer_hit_stats}
         layer_actual_stats_json = {layer: dict(layer_actual_stats[layer]) for layer in layer_actual_stats}
-
+        
         layer_stats_output_file = '/workspace/mmlu_result_predict/' + task + '.json'
         with open(layer_stats_output_file,'a') as outfile:
             json.dump(layer_predict_stats_json, outfile)
@@ -227,10 +217,195 @@ def mmlu_eval(generator):
         print(f"Task {task} is done")
 
         task_num = task_num + 1
-        if task_num == 16:
+        if task_num == 4:
+            break
+
+def mmlu_perplexity_test(generator):
+    
+    max_gen_len = 128
+
+    mmlu_path = "/workspace/mmlu"
+    mmlu_files = os.listdir(mmlu_path)
+
+    token_num = 0
+    log_sum = 0
+
+    task_num = 0
+
+    for csvfile in mmlu_files:
+
+        task = csvfile.rstrip('.csv')
+        file_path = mmlu_path + '/' + csvfile
+        df = pd.read_csv(file_path, header=None, usecols=[0])
+
+        if os.path.exists("/workspace/MixtralKit/output_data.json"):
+            os.remove("/workspace/MixtralKit/output_data.json")
+
+        prompt_num = 0
+
+        print(f"Task {task} begins")
+
+        for prompts in df[0]:
+            '''
+            prompts = [
+                "Chaos isn't a pit, Chaos is a ladder.",
+                ]
+            '''
+            prompts = [str(prompts)]
+            temperature = 1.0 # for greedy decoding
+            top_p = 0.9
+
+            
+            results = generator.text_completion(
+                prompts,
+                max_gen_len=max_gen_len,
+                temperature=temperature,
+                top_p=top_p,
+            )
+            for prompt, result in zip(prompts, results):
+                print("="*30 + "Example START" + "="*30 + '\n')
+                print("[Prompt]:\n{}\n".format(prompt))
+                print("[Response]:\n{}\n".format(result['generation']))
+                print("="*30 + "Example END" + "="*30 + '\n')
+            
+            if os.path.exists("/workspace/MixtralKit/output_data.json"):
+
+                with open("/workspace/MixtralKit/output_data.json", "r") as file:
+
+                    for i, line in enumerate(file):
+                        data = json.loads(line) # List: [bsz]
+                        for j in range(len(data)):
+                            log_sum = log_sum + math.log(data[j])
+                            token_num = token_num + 1
+
+                os.remove("/workspace/MixtralKit/output_data.json")
+
+            print("middle Perplexity = ", math.exp(-log_sum/token_num))
+
+            prompt_num = prompt_num + 1
+            if prompt_num == 64:
+                break
+
+        print(f"Task {task} is done")
+
+        task_num = task_num + 1
+        if task_num == 4:
             break
     
     print("Perplexity = ", math.exp(-log_sum/token_num))
+
+def mmlu_performance_test(generator):
+
+    PROMPT_PATH = '/workspace/mmlu/test_prompt.json'
+    ANSWER_PATH = '/workspace/mmlu/test_standard_answer.json'
+    task_list = [
+        "abstract_algebra",
+        "anatomy",
+        "astronomy",
+        "business_ethics",
+        "clinical_knowledge",
+        "college_biology",
+        "college_chemistry",
+        "college_computer_science",
+        "college_mathematics",
+        "college_medicine",
+        "college_physics",
+        "computer_security",
+        "conceptual_physics",
+        "econometrics",
+        "electrical_engineering",
+        "elementary_mathematics",
+        "formal_logic",
+        "global_facts",
+        "high_school_biology",
+        "high_school_chemistry",
+        "high_school_computer_science",
+        "high_school_european_history",
+        "high_school_geography",
+        "high_school_government_and_politics",
+        "high_school_macroeconomics",
+        "high_school_mathematics",
+        "high_school_microeconomics",
+        "high_school_physics",
+        "high_school_psychology",
+        "high_school_statistics",
+        "high_school_us_history",
+        "high_school_world_history",
+        "human_aging",
+        "human_sexuality",
+        "international_law",
+        "jurisprudence",
+        "logical_fallacies",
+        "machine_learning",
+        "management",
+        "marketing",
+        "medical_genetics",
+        "miscellaneous",
+        "moral_disputes",
+        "moral_scenarios",
+        "nutrition",
+        "philosophy",
+        "prehistory",
+        "professional_accounting",
+        "professional_law",
+        "professional_medicine",
+        "professional_psychology",
+        "public_relations",
+        "security_studies",
+        "sociology",
+        "us_foreign_policy",
+        "virology",
+        "world_religions",
+    ]
+
+    prompts = {}
+    answers = {}
+    with open(PROMPT_PATH, 'r') as file:
+        prompts = json.load(file)
+    
+    with open(ANSWER_PATH, 'r') as file:
+        answers = json.load(file)
+
+    max_gen_len = 128
+    temperature = 1.0
+    top_p = 0.9
+
+    right_prompt = 0
+    total_prompt = 0
+
+    for task in task_list:
+
+        prompt = prompts[task]
+        for i, question in enumerate(prompt):
+
+            question = prompt[i].tolist()
+            answer = answers[task][i]
+
+            result = generator.text_completion(
+                question,
+                max_gen_len=max_gen_len,
+                temperature=temperature,
+                top_p=top_p,
+            )
+
+            print("="*30 + "Example START" + "="*30 + '\n')
+            print("[Prompt]:\n{}\n".format(question))
+            print("[Response]:\n{}\n".format(result['generation']))
+
+            if result['generation'] == answer:
+                print("Answer Right")
+                right_prompt = right_prompt + 1
+            else:
+                print("Answer Wrong, Right is: ", answer)
+            
+            total_prompt = total_prompt + 1
+
+            print("="*30 + "Example END" + "="*30 + '\n')
+    
+    print("test end.")
+    print("Total prompt: ", total_prompt)
+    print("Right prompt: ", right_prompt)
+    print("Score: ", (right_prompt/total_prompt)*100)
 
 def main(generator):
 
@@ -269,4 +444,6 @@ if __name__ == "__main__":
     generator = init(args)
     generator = quant(generator)
     # main(generator)
-    mmlu_eval(generator)
+    # mmlu_perplexity_test(generator)
+    # mmlu_predict_test(generator)
+    mmlu_performance_test(generator)

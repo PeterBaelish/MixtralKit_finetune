@@ -172,21 +172,23 @@ class Mixtral:
             )
 
         for cur_pos in range(min_prompt_len, total_len):
+            '''
             print("==============================================================================")
             print("current_position:", cur_pos)
             print("current token:", self.tokenizer.decode(tokens[0, prev_pos].tolist()))
             
             start_time = time.time()
-
+            '''
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
-            ''''''
+            '''
             probs, _ = torch.max(torch.softmax(logits[:, -1], dim=-1),dim=1) # probs: (bsz)
+
             print(probs.tolist())
 
             with open("/workspace/MixtralKit/output_data.json", "a") as file:
                 json.dump(probs.tolist(), file)
                 file.write("\n")
-            
+            '''
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)
@@ -209,7 +211,7 @@ class Mixtral:
             eos_reached |= (~input_text_mask[:, cur_pos]) & (
                 next_token == self.tokenizer.eos_id
             )
-
+            '''
             end_time = time.time()
             elapsed_time = (end_time - start_time) * 1000
             
@@ -217,7 +219,7 @@ class Mixtral:
                 print(f"prefill time: {elapsed_time} ms")
             else:
                 print(f"decode time(generate 1 token): {elapsed_time} ms")
-                
+            '''    
             prev_pos = cur_pos
             if all(eos_reached):
                 break
