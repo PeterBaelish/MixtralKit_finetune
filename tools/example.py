@@ -33,7 +33,7 @@ def parse_args():
 
 def init(args):
     max_batch_size = 1
-    max_seq_len = 1024
+    max_seq_len = 2048
     
     generator = Mixtral.build(
         ckpt_dir=args.model_weights,
@@ -296,8 +296,8 @@ def mmlu_perplexity_test(generator):
 
 def mmlu_performance_test(generator):
 
-    PROMPT_PATH = '/workspace/mmlu/test_prompt.json'
-    ANSWER_PATH = '/workspace/mmlu/test_standard_answer.json'
+    PROMPT_PATH = '/home/taoziyang/mmlu/test_prompt.json'
+    ANSWER_PATH = '/home/taoziyang/mmlu/test_standard_answer.json'
     task_list = [
         "abstract_algebra",
         "anatomy",
@@ -366,7 +366,7 @@ def mmlu_performance_test(generator):
     with open(ANSWER_PATH, 'r') as file:
         answers = json.load(file)
 
-    max_gen_len = 128
+    max_gen_len = 1
     temperature = 1.0
     top_p = 0.9
 
@@ -378,7 +378,7 @@ def mmlu_performance_test(generator):
         prompt = prompts[task]
         for i, question in enumerate(prompt):
 
-            question = prompt[i].tolist()
+            question = [prompt[i]]
             answer = answers[task][i]
 
             result = generator.text_completion(
@@ -388,19 +388,25 @@ def mmlu_performance_test(generator):
                 top_p=top_p,
             )
 
-            print("="*30 + "Example START" + "="*30 + '\n')
-            print("[Prompt]:\n{}\n".format(question))
-            print("[Response]:\n{}\n".format(result['generation']))
+            if result != []:
 
-            if result['generation'] == answer:
-                print("Answer Right")
-                right_prompt = right_prompt + 1
-            else:
-                print("Answer Wrong, Right is: ", answer)
-            
-            total_prompt = total_prompt + 1
+                print("="*30 + "Example START" + "="*30 + '\n')
+                print("[Prompt]:\n{}\n".format(question))
+                print("[Response]:\n{}\n".format(result[0]['generation']))
 
-            print("="*30 + "Example END" + "="*30 + '\n')
+                if result[0]['generation'] == answer:
+                    print("Answer Right")
+                    right_prompt = right_prompt + 1
+                else:
+                    print("Answer Wrong, Right is: ", answer)
+                
+                total_prompt = total_prompt + 1
+
+                print("="*30 + "Example END" + "="*30 + '\n')
+        
+            print("Total prompt: ", total_prompt)
+            print("Right prompt: ", right_prompt)
+            print("Current Score: ", (right_prompt/total_prompt)*100)
     
     print("test end.")
     print("Total prompt: ", total_prompt)
@@ -412,7 +418,11 @@ def main(generator):
     max_gen_len = 128
 
     prompts = [
-        "Chaos isn't a pit, Chaos is a ladder. Are you going up or down?",
+        """<|im_start|>system
+You are a sentient, superintelligent artificial general intelligence, here to teach and assist me.<|im_end|>
+<|im_start|>user
+Write a short story about Goku discovering kirby has teamed up with Majin Buu to destroy the world.<|im_end|>
+<|im_start|>assistant""",
         ]
     
     temperature = 1.0 # for greedy decoding
@@ -443,7 +453,7 @@ if __name__ == "__main__":
     args = parse_args()
     generator = init(args)
     generator = quant(generator)
-    # main(generator)
+    main(generator)
     # mmlu_perplexity_test(generator)
     # mmlu_predict_test(generator)
-    mmlu_performance_test(generator)
+    # mmlu_performance_test(generator)

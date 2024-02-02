@@ -5,7 +5,6 @@ import math
 import torch
 from typing import Optional, Tuple
 from torch import nn
-from memory_profiler import profile
 import torch.nn.functional as F
 from .utils import ModelArgs, repeat_kv
 from .position_embeding import apply_rotary_emb
@@ -26,10 +25,10 @@ class TorchAttention(nn.Module):
             n_local_kv_heads (int): Number of local key and value heads.
             n_rep (int): Number of repetitions for local heads.
             head_dim (int): Dimension size of each attention head.
-            wq (ColumnParallelLinear): Linear transformation for queries.
-            wk (ColumnParallelLinear): Linear transformation for keys.
-            wv (ColumnParallelLinear): Linear transformation for values.
-            wo (RowParallelLinear): Linear transformation for output.
+            q_proj (ColumnParallelLinear): Linear transformation for queries.
+            k_proj (ColumnParallelLinear): Linear transformation for keys.
+            v_proj (ColumnParallelLinear): Linear transformation for values.
+            o_proj (RowParallelLinear): Linear transformation for output.
             cache_k (torch.Tensor): Cached keys for attention.
             cache_v (torch.Tensor): Cached values for attention.
 
@@ -44,22 +43,22 @@ class TorchAttention(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = nn.Linear(
+        self.q_proj = nn.Linear(
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
         )
-        self.wk = nn.Linear(
+        self.k_proj = nn.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
         )
-        self.wv = nn.Linear(
+        self.v_proj = nn.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
         )
-        self.wo = nn.Linear(
+        self.o_proj = nn.Linear(
             args.n_heads * self.head_dim,
             args.dim,
             bias=False,
@@ -82,7 +81,6 @@ class TorchAttention(nn.Module):
             )
         ).cuda()
 
-    # @profile
     def forward(
         self,
         x: torch.Tensor,
@@ -104,7 +102,7 @@ class TorchAttention(nn.Module):
 
         """
         bsz, seqlen, _ = x.shape
-        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        xq, xk, xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -133,7 +131,7 @@ class TorchAttention(nn.Module):
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
-        return self.wo(output)
+        return self.o_proj(output)
 
 
 class FairScaleAttention(TorchAttention):
@@ -154,10 +152,10 @@ class FairScaleAttention(TorchAttention):
             n_local_kv_heads (int): Number of local key and value heads.
             n_rep (int): Number of repetitions for local heads.
             head_dim (int): Dimension size of each attention head.
-            wq (ColumnParallelLinear): Linear transformation for queries.
-            wk (ColumnParallelLinear): Linear transformation for keys.
-            wv (ColumnParallelLinear): Linear transformation for values.
-            wo (RowParallelLinear): Linear transformation for output.
+            q_proj (ColumnParallelLinear): Linear transformation for queries.
+            k_proj (ColumnParallelLinear): Linear transformation for keys.
+            v_proj (ColumnParallelLinear): Linear transformation for values.
+            o_proj (RowParallelLinear): Linear transformation for output.
             cache_k (torch.Tensor): Cached keys for attention.
             cache_v (torch.Tensor): Cached values for attention.
 
@@ -176,28 +174,28 @@ class FairScaleAttention(TorchAttention):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = ColumnParallelLinear(
+        self.q_proj = ColumnParallelLinear(
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        self.wk = ColumnParallelLinear(
+        self.k_proj = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        self.wv = ColumnParallelLinear(
+        self.v_proj = ColumnParallelLinear(
             args.dim,
             self.n_kv_heads * self.head_dim,
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
         )
-        self.wo = RowParallelLinear(
+        self.o_proj = RowParallelLinear(
             args.n_heads * self.head_dim,
             args.dim,
             bias=False,

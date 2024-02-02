@@ -8,6 +8,9 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple, TypedDict
+import safetensors
+from safetensors.torch import load_file
+from transformers import LlamaTokenizer
 
 import torch
 import torch.nn.functional as F
@@ -17,7 +20,8 @@ from mixtralkit.layers import (
     MoETorchTransformer,
     MixtralModelArgs,
     PreloadMoETorchTransformer,
-    QuantMoETorchTransformer
+    QuantMoETorchTransformer,
+    SingleGPUMoETorchTransformer
 )
 from mixtralkit.utils import sample_top_p
 from mixtralkit.utils.generation import (
@@ -74,6 +78,9 @@ class Mixtral:
         torch.manual_seed(seed)
 
         start_time = time.time()
+
+        # load model in .pth
+        '''
         checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
         assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
         assert model_parallel_size == len(
@@ -82,6 +89,16 @@ class Mixtral:
         ckpt_path = checkpoints[0]
         with open(Path(ckpt_dir) / "params.json", "r") as f:
             params = json.loads(f.read())
+        '''
+
+        # load model in .safetensors
+        checkpoints = sorted(Path(ckpt_dir).glob("*.safetensors"))
+        ckpt_paths = checkpoints
+
+        print(ckpt_paths)
+        
+        with open(Path(ckpt_dir) / "config.json", "r") as f:
+            params = json.loads(f.read())
 
         model_args: MixtralModelArgs = MixtralModelArgs(
             max_seq_len=max_seq_len,
@@ -89,25 +106,46 @@ class Mixtral:
             num_gpus=num_gpus,
             **params,
         )
-        tokenizer = Tokenizer(model_path=tokenizer_path)
-        model_args.vocab_size = tokenizer.n_words
+
+        # tokenizer = Tokenizer(model_path=tokenizer_path)
+        # model_args.vocab_size = tokenizer.n_words
+        # print("tokenizer.n_words: ", tokenizer.n_words)
+        tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path, local_files_only=True) # THIS CAN HARM GPU!!
+        model_args.vocab_size = 32002
+        
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        model = PreloadMoETorchTransformer(model_args)
+        model = QuantMoETorchTransformer(model_args)
         print(f"=== created Mixtral 8x7B. Experts spread over {num_gpus} GPUs ===")
         model_param_keys = []
         for key, value in model.named_parameters():
             model_param_keys.append(key)
 
-        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        # checkpoint = torch.load(ckpt_path, map_location="cpu")
+        checkpoint = {}
+        for ckpt_path in ckpt_paths:
+            checkpoint.update(load_file(ckpt_path)) # checkpoint is model in dict, ckpt_path is path to model
+
         print("Total number of model parameters:{}".format(len(model_param_keys)))
         print("Total number of checkpoint parameters:{}".format(len(checkpoint)))
 
-        model.load_state_dict(checkpoint, strict=False)
+        '''
+        # pytorch will do this automatically
+        for key in checkpoint.keys():
+            checkpoint[key] = checkpoint[key].to(torch.float16)
+        '''
+
+        new_checkpoint = {k.partition('model.')[2] if k.startswith("model.") else k : v for k, v in checkpoint.items() }
+
+        model.load_state_dict(new_checkpoint, strict=False)
+        
+        # print(new_checkpoint["lm_head.weight"].equal(model.lm_head.weight.to("cpu")))
+        # print(new_checkpoint["layers.0.block_sparse_moe.experts.0.w1.weight"].equal(model.layers[0].block_sparse_moe.experts[0].w1.weight.to("cpu")))
+        
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Mixtral(model, tokenizer)
     
-    def __init__(self, model: PreloadMoETorchTransformer, tokenizer: Tokenizer):
+    def __init__(self, model: QuantMoETorchTransformer, tokenizer: Tokenizer):
         self.model = model
         self.tokenizer = tokenizer
 
@@ -147,9 +185,12 @@ class Mixtral:
         min_prompt_len = min(len(t) for t in prompt_tokens)
         max_prompt_len = max(len(t) for t in prompt_tokens)
         # assert max_prompt_len <= params.max_seq_len
+        if max_prompt_len >= params.max_seq_len:
+            return ([], None)
+
         total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
 
-        pad_id = self.tokenizer.pad_id
+        pad_id = self.tokenizer.pad_token_id
         tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cuda") # tokens: cpu->gpu
         for k, t in enumerate(prompt_tokens):
             adj_len = min(len(t), total_len-1)
@@ -172,14 +213,23 @@ class Mixtral:
             )
 
         for cur_pos in range(min_prompt_len, total_len):
-            '''
+            
             print("==============================================================================")
             print("current_position:", cur_pos)
             print("current token:", self.tokenizer.decode(tokens[0, prev_pos].tolist()))
-            
+            ''''''
             start_time = time.time()
-            '''
+            
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+
+            end_time = time.time()
+            elapsed_time = (end_time - start_time) * 1000
+            
+            if prev_pos == 0:
+                print(f"prefill time: {elapsed_time} ms")
+            else:
+                print(f"decode time(generate 1 token): {elapsed_time} ms")
+            ''''''    
             '''
             probs, _ = torch.max(torch.softmax(logits[:, -1], dim=-1),dim=1) # probs: (bsz)
 
@@ -209,17 +259,9 @@ class Mixtral:
                     ignore_index=pad_id,
                 )
             eos_reached |= (~input_text_mask[:, cur_pos]) & (
-                next_token == self.tokenizer.eos_id
+                next_token == self.tokenizer.eos_token_id
             )
-            '''
-            end_time = time.time()
-            elapsed_time = (end_time - start_time) * 1000
-            
-            if prev_pos == 0:
-                print(f"prefill time: {elapsed_time} ms")
-            else:
-                print(f"decode time(generate 1 token): {elapsed_time} ms")
-            '''    
+
             prev_pos = cur_pos
             if all(eos_reached):
                 break
@@ -235,8 +277,8 @@ class Mixtral:
             if logprobs:
                 probs = token_logprobs[i][start : len(prompt_tokens[i]) + max_gen_len]
             # cut to eos tok if any
-            if self.tokenizer.eos_id in toks:
-                eos_idx = toks.index(self.tokenizer.eos_id)
+            if self.tokenizer.eos_token_id in toks:
+                eos_idx = toks.index(self.tokenizer.eos_token_id)
                 toks = toks[:eos_idx]
                 probs = probs[:eos_idx] if logprobs else None
             out_tokens.append(toks)
@@ -283,16 +325,19 @@ class Mixtral:
             logprobs=logprobs,
             echo=echo,
         )
-        if logprobs:
-            return [
-                {
-                    "generation": self.tokenizer.decode(t),
-                    "tokens": [self.tokenizer.decode(x) for x in t],
-                    "logprobs": logprobs_i,
-                }
-                for t, logprobs_i in zip(generation_tokens, generation_logprobs)
-            ]
-        return [{"generation": self.tokenizer.decode(t)} for t in generation_tokens]
+        if generation_tokens == []:
+            return []
+        else:
+            if logprobs:
+                return [
+                    {
+                        "generation": self.tokenizer.decode(t),
+                        "tokens": [self.tokenizer.decode(x) for x in t],
+                        "logprobs": logprobs_i,
+                    }
+                    for t, logprobs_i in zip(generation_tokens, generation_logprobs)
+                ]
+            return [{"generation": self.tokenizer.decode(t)} for t in generation_tokens]
 
     def chat_completion(
         self,

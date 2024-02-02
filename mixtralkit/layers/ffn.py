@@ -29,7 +29,7 @@ class TorchFFN_HQQ(nn.Module):
 
         """
         super().__init__()
-
+        
         device = torch.device('cpu')
         self.w1 = nn.Linear(
             dim, hidden_dim, bias=False
@@ -40,11 +40,26 @@ class TorchFFN_HQQ(nn.Module):
         self.w3 = nn.Linear(
             dim, hidden_dim, bias=False
         ).to(device)
+        '''
+        self.w1 = nn.Linear(
+            dim, hidden_dim, bias=False
+        )
+        self.w2 = nn.Linear(
+            hidden_dim, dim, bias=False
+        )
+        self.w3 = nn.Linear(
+            dim, hidden_dim, bias=False
+        )'''
 
     def forward(self, x):
+        
         device = x.device
         x = x.to(self.w1.W_q.device)
         return self.w2(F.silu(self.w1(x)) * self.w3(x)).to(device)
+        '''
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        '''
+
 
 class TorchFFN(nn.Module):
     def __init__(
@@ -68,7 +83,7 @@ class TorchFFN(nn.Module):
 
         """
         super().__init__()
-
+        ''''''
         device = torch.device('cpu')
         self.w1 = nn.Linear(
             dim, hidden_dim, bias=False
@@ -79,7 +94,17 @@ class TorchFFN(nn.Module):
         self.w3 = nn.Linear(
             dim, hidden_dim, bias=False
         ).to(device)
-
+        '''
+        self.w1 = nn.Linear(
+            dim, hidden_dim, bias=False
+        )
+        self.w2 = nn.Linear(
+            hidden_dim, dim, bias=False
+        )
+        self.w3 = nn.Linear(
+            dim, hidden_dim, bias=False
+        )
+        '''
     def forward(self, x):
         device = x.device
         x = x.to(self.w1.weight.device)

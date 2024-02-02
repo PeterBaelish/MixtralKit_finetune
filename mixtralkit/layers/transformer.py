@@ -28,24 +28,24 @@ class TorchTransformerBlock(nn.Module):
             dim (int): Dimension size of the model.
             head_dim (int): Dimension size of each attention head.
             attention (Attention): Attention module.
-            feed_forward (FeedForward): FeedForward module.
+            block_sparse_moe (FeedForward): FeedForward module.
             layer_id (int): Identifier for the layer.
-            attention_norm (RMSNorm): Layer normalization for attention output.
-            ffn_norm (RMSNorm): Layer normalization for feedforward output.
+            input_layernorm (RMSNorm): Layer normalization for attention output.
+            post_attention_layernorm (RMSNorm): Layer normalization for feedforward output.
 
         """
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = TorchAttention(args)
-        self.feed_forward = TorchFFN(
+        self.self_attn = TorchAttention(args)
+        self.block_sparse_moe = TorchFFN(
             dim=args.dim,
             hidden_dim=4 * args.dim,
         )
         self.layer_id = layer_id
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.input_layernorm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.post_attention_layernorm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(
         self,
@@ -67,10 +67,10 @@ class TorchTransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention.forward(
-            self.attention_norm(x), start_pos, freqs_cis, mask
+        h = x + self.self_attn.forward(
+            self.input_layernorm(x), start_pos, freqs_cis, mask
         )
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        out = h + self.block_sparse_moe.forward(self.post_attention_layernorm(h))
         return out
 
 
@@ -88,26 +88,26 @@ class FairScaleTransformerBlock(TorchTransformerBlock):
             dim (int): Dimension size of the model.
             head_dim (int): Dimension size of each attention head.
             attention (Attention): Attention module.
-            feed_forward (FeedForward): FeedForward module.
+            block_sparse_moe (FeedForward): FeedForward module.
             layer_id (int): Identifier for the layer.
-            attention_norm (RMSNorm): Layer normalization for attention output.
-            ffn_norm (RMSNorm): Layer normalization for feedforward output.
+            input_layernorm (RMSNorm): Layer normalization for attention output.
+            post_attention_layernorm (RMSNorm): Layer normalization for feedforward output.
 
         """
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = FairScaleAttention(args)
-        self.feed_forward = FairScaleFFN(
+        self.self_attn = FairScaleAttention(args)
+        self.block_sparse_moe = FairScaleFFN(
             dim=args.dim,
             hidden_dim=4 * args.dim,
             multiple_of=args.multiple_of,
             ffn_dim_multiplier=args.ffn_dim_multiplier,
         )
         self.layer_id = layer_id
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.input_layernorm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.post_attention_layernorm = RMSNorm(args.dim, eps=args.norm_eps)
 
 
 class TorchTransformer(nn.Module):
@@ -122,7 +122,7 @@ class TorchTransformer(nn.Module):
             params (ModelArgs): Model configuration parameters.
             vocab_size (int): Vocabulary size.
             n_layers (int): Number of layers in the model.
-            tok_embeddings (ParallelEmbedding): Token embeddings.
+            embed_tokens (ParallelEmbedding): Token embeddings.
             layers (torch.nn.ModuleList): List of Transformer blocks.
             norm (RMSNorm): Layer normalization for the model output.
             output (ColumnParallelLinear): Linear layer for final output.
@@ -134,7 +134,7 @@ class TorchTransformer(nn.Module):
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
-        self.tok_embeddings = nn.Embedding(
+        self.embed_tokens = nn.Embedding(
             params.vocab_size, params.dim
         )
 
@@ -143,7 +143,7 @@ class TorchTransformer(nn.Module):
             self.layers.append(TorchTransformerBlock(layer_id, params))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
-        self.output = nn.Linear(
+        self.lm_head = nn.Linear(
             params.dim, params.vocab_size, bias=False
         )
         self.freqs_cis = precompute_freqs_cis(
@@ -168,7 +168,7 @@ class TorchTransformer(nn.Module):
 
         """
         _bsz, seqlen = tokens.shape
-        h = self.tok_embeddings(tokens)
+        h = self.embed_tokens(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
@@ -195,7 +195,7 @@ class TorchTransformer(nn.Module):
             h = layer(h, start_pos, freqs_cis, mask)
             layer_id = layer_id + 1
         h = self.norm(h)
-        output = self.output(h).float()
+        output = self.lm_head(h).float()
         return output
 
 
@@ -211,7 +211,7 @@ class FairScaleTransformer(TorchTransformer):
             params (ModelArgs): Model configuration parameters.
             vocab_size (int): Vocabulary size.
             n_layers (int): Number of layers in the model.
-            tok_embeddings (ParallelEmbedding): Token embeddings.
+            embed_tokens (ParallelEmbedding): Token embeddings.
             layers (torch.nn.ModuleList): List of Transformer blocks.
             norm (RMSNorm): Layer normalization for the model output.
             output (ColumnParallelLinear): Linear layer for final output.
@@ -227,7 +227,7 @@ class FairScaleTransformer(TorchTransformer):
             ColumnParallelLinear,
             ParallelEmbedding,
         )
-        self.tok_embeddings = ParallelEmbedding(
+        self.embed_tokens = ParallelEmbedding(
             params.vocab_size, params.dim, init_method=lambda x: x
         )
 
