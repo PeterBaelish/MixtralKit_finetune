@@ -154,7 +154,7 @@ class TorchTransformer(nn.Module):
             theta=self.params.rope_theta,
         )
 
-    @torch.inference_mode()
+    # @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         """
         Perform a forward pass through the Transformer model.

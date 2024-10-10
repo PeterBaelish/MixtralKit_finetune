@@ -1,4 +1,4 @@
 from .attention import TorchAttention, FairScaleAttention
 from .tokenizer import Tokenizer
-from .moe import MoETorchTransformer, SingleGPUMoETorchTransformer, PreloadMoETorchTransformer, QuantMoETorchTransformer
+from .moe import MoETorchTransformer, SingleGPUMoETorchTransformer, PreloadMoETorchTransformer, QuantMoETorchTransformer, SparsePredictMoETorchTransformer, PruneSingleGPUMoETorchTransformer, JustSparseSingleGPUMoETorchTransformer, NueronCacheSingleGPUMoETorchTransformer, NeuronCachePreloadMoETorchTransformer, MixQuantSingleGPUMoETorchTransformer, MixQuantNeuronCachePreloadMoETorchTransformer
 from .utils import MixtralModelArgs, ModelArgs

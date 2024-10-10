@@ -61,7 +61,7 @@ torch.set_printoptions(threshold=10005)
 if not torch.cuda.is_available():
     raise SystemError("CUDA is not available. This example requires a GPU.")
 
-lib = ctypes.CDLL('/home/taoziyang/MixtralKit/mixtralkit/layers/stream_manage.so')
+lib = ctypes.CDLL('/home/baelish/Desktop/MixtralKit_finetune/mixtralkit/layers/stream_manage.so')
 
 lib.createStream.argtypes = []
 lib.createStream.restype = ctypes.c_void_p
@@ -92,6 +92,7 @@ lib.destroyStream.restype = None
 # stream1 = lib.createStream()
 stream1 = torch.cuda.Stream()
 stream2 = lib.createStream()
+stream3 = lib.createStream()
 
 # Create two tensors
 size = 4096
@@ -105,58 +106,62 @@ meta = torch.full((1, size), 1.0, device='cpu')
 gate1 = nn.Linear(size, size*4, bias=False).cuda()
 gate2 = nn.Linear(size*4, size, bias=False).cuda()
 
+for _ in range(5):
+    a = gate1(a)
+    a = gate2(a)
 torch.cuda.synchronize()
 
 rows = b.shape[0]
 cols = b.shape[1]
 # It doesn't parallel when copy is in front of compute!!But parallel when compute is in front of copy!!
 
-for i in range(32):
+total_start_time = time.time()
+
+for i in range(5):
 
     with torch.cuda.stream(stream1):
         num_threads = 4
 
-        start_time = time.time()
+        start_time_1 = time.time()
         
-
-        multi_threaded_cpu_to_gpu_transfer(b_g, b, num_threads, 0)
+        multi_threaded_cpu_to_gpu_transfer_on_stream(b_g, b, 4, 0, stream3, lib)
+        # multi_threaded_cpu_to_gpu_transfer(b_g, b, num_threads, 0)
         meta_g = meta
         meta_g.to("cuda")
 
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
-        print(f"in stream expert load time: {elapsed_time} ms")
+        end_time_1 = time.time()
+        elapsed_time_1 = (end_time_1 - start_time_1) * 1000
+        print(f"in stream expert load time: {elapsed_time_1} ms")
 
     # Synchronize
-    lib.synchronizeStream(stream1)
-    lib.synchronizeStream(stream2)
+    # lib.synchronizeStream(stream1)
+    # lib.synchronizeStream(stream2)
+    torch.cuda.synchronize()
 
     with torch.cuda.stream(stream1):
 
-        start_time = time.time()
+        #start_time = time.time()
 
-        for _ in range(5):
-            a = gate1(a)
-            a = gate2(a)
         for _ in range(5):
             a = gate1(a)
             a = gate2(a)
         
-        end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000
-        print(f"compute time: {elapsed_time} ms")
+        #end_time = time.time()
+        #elapsed_time = (end_time - start_time) * 1000
+        #print(f"compute time: {elapsed_time} ms")
 
     start_time = time.time()
-    num_threads = 4
-    x = 1
-    if x != 0:
-        multi_threaded_cpu_to_gpu_transfer_on_stream(b_g, b, num_threads, 0, stream2, lib)
-        meta_g = meta
-        meta_g.to("cuda")
+    multi_threaded_cpu_to_gpu_transfer_on_stream(b_g, b, 4, 0, stream2, lib)
     end_time = time.time()
     elapsed_time = (end_time - start_time) * 1000
     print(f"df stream expert load time: {elapsed_time} ms")
+    
 
 
 torch.cuda.synchronize()
+total_end_time = time.time()
+elapsed_time = (total_end_time - total_start_time) * 1000
+print(f"total time: {elapsed_time} ms")
 print(b_g)
+
+

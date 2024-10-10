@@ -1,0 +1,1 @@
+void addFloats(const float *a, const float *b, float *result, int size);
